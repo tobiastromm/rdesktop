@@ -781,8 +781,7 @@ parse_rdp_file(const char *filename, RDESKTOP_CONFIG *config, char *shell,
 			{
 				if (number == 2)
 				{
-					g_window_size_type = Fullscreen;
-					g_fullscreen = True;
+					config->fullscreen = True;
 				}
 			}
 			else if (rdp_key_equals(key, "redirectclipboard"))
@@ -801,7 +800,7 @@ parse_rdp_file(const char *filename, RDESKTOP_CONFIG *config, char *shell,
 
 	fclose(fp);
 
-	if (!geometry_option && !fullscreen_option && !g_fullscreen && have_width && have_height)
+	if (!geometry_option && !fullscreen_option && !config->fullscreen && have_width && have_height)
 	{
 		config->width = width;
 		config->height = height;
@@ -932,8 +931,7 @@ rdp_uri_apply_integer_setting(RDESKTOP_CONFIG *config, const char *key, long num
 	{
 		if (number == 2)
 		{
-			g_window_size_type = Fullscreen;
-			g_fullscreen = True;
+			config->fullscreen = True;
 		}
 	}
 	else if (rdp_key_equals(key, "redirectclipboard"))
@@ -1031,7 +1029,7 @@ parse_rdp_uri(const char *uri, RDESKTOP_CONFIG *config, char *shell,
 		cursor = next;
 	}
 
-	if (!geometry_option && !fullscreen_option && !g_fullscreen && have_width && have_height)
+	if (!geometry_option && !fullscreen_option && !config->fullscreen && have_width && have_height)
 	{
 		config->width = width;
 		config->height = height;
@@ -1395,8 +1393,6 @@ main(int argc, char *argv[])
 		else if (!strcmp(argv[c], "--multimon") || !strcmp(argv[c], "/multimon"))
 		{
 			g_multimon = True;
-			g_fullscreen = True;
-			g_window_size_type = Fullscreen;
 			argv[c] = "-f";
 		}
 		else if (!strcmp(argv[c], "--window-icon"))
@@ -1529,7 +1525,7 @@ main(int argc, char *argv[])
 
 			case 'g':
 				geometry_option = True;
-				g_fullscreen = False;
+				config.fullscreen = False;
 				if (rdesktop_config_parse_geometry(&config, optarg) != 0)
 				{
 					return return_after_credential_cleanup(&config, EX_USAGE);
@@ -1537,8 +1533,7 @@ main(int argc, char *argv[])
 				break;
 
 			case 'f':
-				g_window_size_type = Fullscreen;
-				g_fullscreen = True;
+				config.fullscreen = True;
 				fullscreen_option = True;
 				break;
 

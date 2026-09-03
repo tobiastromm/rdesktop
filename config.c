@@ -16,6 +16,7 @@ extern int g_dpi;
 extern int g_server_depth;
 extern char g_keymapname[PATH_MAX];
 extern char g_password[64];
+extern RD_BOOL g_fullscreen;
 
 static RD_BOOL
 rdesktop_config_parse_port(const char *value, uint16 *port)
@@ -272,4 +273,7 @@ rdesktop_config_apply_to_legacy(const RDESKTOP_CONFIG *config, char *domain,
 	}
 	g_server_depth = config->colour_depth;
 	STRNCPY(g_keymapname, config->keymap, sizeof(g_keymapname));
+	g_fullscreen = config->fullscreen;
+	if (config->fullscreen)
+		g_window_size_type = Fullscreen;
 }

@@ -28,6 +28,7 @@ typedef struct rdesktop_config
 	RD_BOOL password_present;
 	RD_BOOL password_from_prompt;
 	RD_BOOL password_prompt_requested;
+	RD_BOOL fullscreen;
 }
 RDESKTOP_CONFIG;
 

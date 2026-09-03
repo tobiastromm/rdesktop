@@ -16,6 +16,7 @@ int g_dpi = 0;
 int g_server_depth = -1;
 char g_keymapname[PATH_MAX] = "";
 char g_password[64] = "";
+RD_BOOL g_fullscreen = False;
 
 void
 logger(log_subject_t subject, log_level_t level, char *format, ...)
@@ -44,7 +45,8 @@ main(void)
 	char domain[256];
 	rdesktop_config_init_defaults(&value);
 	if (value.password_present || value.password_from_prompt ||
-	    value.password_prompt_requested || value.password[0] != '\0')
+	    value.password_prompt_requested || value.password[0] != '\0' ||
+	    value.fullscreen)
 		return 37;
 	if (value.rdp_version != RDP_V5 || value.hostname[0] != '\0' ||
 	    !rdesktop_config_validate(&value))
@@ -161,6 +163,18 @@ main(void)
 	rdesktop_config_set_password(&value, "", True);
 	if (!value.password_present || !value.password_from_prompt)
 		return 35;
+
+	rdesktop_config_init_defaults(&value);
+	value.fullscreen = True;
+	rdesktop_config_apply_to_legacy(&value, domain, sizeof(domain));
+	if (!g_fullscreen || g_window_size_type != Fullscreen)
+		return 38;
+	rdesktop_config_init_defaults(&value);
+	if (rdesktop_config_parse_geometry(&value, "800x600") != 0)
+		return 39;
+	rdesktop_config_apply_to_legacy(&value, domain, sizeof(domain));
+	if (g_fullscreen || g_window_size_type != Fixed)
+		return 40;
 
 	rdesktop_config_init_defaults(&value);
 	STRNCPY(value.server, "server.example.com", sizeof(value.server));

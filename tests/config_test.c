@@ -4,6 +4,7 @@
 
 RDP_VERSION g_rdp_version = RDP_V4;
 char g_hostname[16] = "legacy-host";
+int g_tcp_port_rdp = TCP_PORT_RDP;
 
 int
 main(void)
@@ -25,5 +26,39 @@ main(void)
 	rdesktop_config_apply_to_legacy(&value);
 	if (g_rdp_version != RDP_V5)
 		return 4;
-	return strcmp(g_hostname, "client-host") == 0 ? 0 : 5;
+	if (strcmp(g_hostname, "client-host") != 0 || g_tcp_port_rdp != TCP_PORT_RDP)
+		return 5;
+
+	rdesktop_config_init_defaults(&value);
+	STRNCPY(value.server, "server.example.com", sizeof(value.server));
+	if (!rdesktop_config_parse_server_endpoint(&value) ||
+	    strcmp(value.server, "server.example.com") != 0 || value.port != TCP_PORT_RDP)
+		return 6;
+
+	rdesktop_config_init_defaults(&value);
+	STRNCPY(value.server, "192.0.2.10:3390", sizeof(value.server));
+	if (!rdesktop_config_parse_server_endpoint(&value) ||
+	    strcmp(value.server, "192.0.2.10") != 0 || value.port != 3390)
+		return 7;
+
+	rdesktop_config_init_defaults(&value);
+	STRNCPY(value.server, "server.example.com:invalid", sizeof(value.server));
+	if (rdesktop_config_parse_server_endpoint(&value))
+		return 8;
+
+#ifdef IPv6
+	rdesktop_config_init_defaults(&value);
+	STRNCPY(value.server, "[2001:db8::1]:3391", sizeof(value.server));
+	if (!rdesktop_config_parse_server_endpoint(&value) ||
+	    strcmp(value.server, "2001:db8::1") != 0 || value.port != 3391)
+		return 9;
+
+	rdesktop_config_init_defaults(&value);
+	STRNCPY(value.server, "2001:db8::1", sizeof(value.server));
+	if (!rdesktop_config_parse_server_endpoint(&value) ||
+	    strcmp(value.server, "2001:db8::1") != 0 || value.port != TCP_PORT_RDP)
+		return 10;
+#endif
+
+	return 0;
 }

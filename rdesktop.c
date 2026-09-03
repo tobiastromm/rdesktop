@@ -662,7 +662,7 @@ static RD_BOOL
 read_rdp_file_line(FILE *fp, RD_BOOL utf16_le, RD_BOOL utf16_be, char *line, size_t size);
 
 static RD_BOOL
-parse_rdp_file(const char *filename, char *server, size_t server_size, char *domain,
+parse_rdp_file(const char *filename, RDESKTOP_CONFIG *config, char *domain,
 	       size_t domain_size, char *shell, size_t shell_size, char *directory,
 	       size_t directory_size, RD_BOOL username_option, RD_BOOL password_option,
 	       RD_BOOL domain_option, RD_BOOL shell_option, RD_BOOL directory_option,
@@ -712,8 +712,8 @@ parse_rdp_file(const char *filename, char *server, size_t server_size, char *dom
 		{
 			if (rdp_key_equals(key, "full address"))
 			{
-				STRNCPY(server, value, server_size);
-				have_server = server[0] != '\0';
+				STRNCPY(config->server, value, sizeof(config->server));
+				have_server = config->server[0] != '\0';
 			}
 			else if (!username_option && rdp_key_equals(key, "username"))
 			{
@@ -752,7 +752,7 @@ parse_rdp_file(const char *filename, char *server, size_t server_size, char *dom
 			if (rdp_key_equals(key, "server port"))
 			{
 				if (number > 0 && number <= 65535)
-					g_tcp_port_rdp = number;
+					config->port = (uint16) number;
 			}
 			else if (!depth_option && rdp_key_equals(key, "session bpp"))
 			{
@@ -896,7 +896,8 @@ rdp_uri_percent_decode(const char *src, char *dst, size_t dst_size)
 }
 
 static void
-rdp_uri_apply_integer_setting(const char *key, long number, RD_BOOL geometry_option,
+rdp_uri_apply_integer_setting(RDESKTOP_CONFIG *config, const char *key, long number,
+			      RD_BOOL geometry_option,
                               RD_BOOL fullscreen_option, RD_BOOL depth_option,
                               RD_BOOL *have_width, RD_BOOL *have_height,
                               uint32 *width, uint32 *height)
@@ -904,7 +905,7 @@ rdp_uri_apply_integer_setting(const char *key, long number, RD_BOOL geometry_opt
 	if (rdp_key_equals(key, "server port"))
 	{
 		if (number > 0 && number <= 65535)
-			g_tcp_port_rdp = number;
+			config->port = (uint16) number;
 	}
 	else if (!depth_option && rdp_key_equals(key, "session bpp"))
 	{
@@ -942,7 +943,7 @@ rdp_uri_apply_integer_setting(const char *key, long number, RD_BOOL geometry_opt
 }
 
 static RD_BOOL
-parse_rdp_uri(const char *uri, char *server, size_t server_size, char *domain,
+parse_rdp_uri(const char *uri, RDESKTOP_CONFIG *config, char *domain,
               size_t domain_size, char *shell, size_t shell_size, char *directory,
               size_t directory_size, RD_BOOL username_option, RD_BOOL password_option,
               RD_BOOL domain_option, RD_BOOL shell_option, RD_BOOL directory_option,
@@ -987,8 +988,8 @@ parse_rdp_uri(const char *uri, char *server, size_t server_size, char *domain,
 		{
 			if (rdp_key_equals(key, "full address"))
 			{
-				STRNCPY(server, value, server_size);
-				have_server = server[0] != '\0';
+				STRNCPY(config->server, value, sizeof(config->server));
+				have_server = config->server[0] != '\0';
 			}
 			else if (!username_option && rdp_key_equals(key, "username"))
 			{
@@ -1022,7 +1023,8 @@ parse_rdp_uri(const char *uri, char *server, size_t server_size, char *domain,
 			errno = 0;
 			number = strtol(value, &endptr, 10);
 			if (errno == 0 && endptr != value && *endptr == '\0')
-				rdp_uri_apply_integer_setting(key, number, geometry_option, fullscreen_option,
+				rdp_uri_apply_integer_setting(config, key, number, geometry_option,
+						      fullscreen_option,
 				                              depth_option, &have_width, &have_height,
 				                              &width, &height);
 		}
@@ -1090,52 +1092,10 @@ read_rdp_file_line(FILE *fp, RD_BOOL utf16_le, RD_BOOL utf16_be, char *line, siz
 	return got_data;
 }
 
-static void
-parse_server_and_port(char *server)
+static RD_BOOL
+parse_server_and_port(RDESKTOP_CONFIG *config)
 {
-	char *p;
-#ifdef IPv6
-	int addr_colons;
-#endif
-
-#ifdef IPv6
-	p = server;
-	addr_colons = 0;
-	while (*p)
-		if (*p++ == ':')
-			addr_colons++;
-	if (addr_colons >= 2)
-	{
-		/* numeric IPv6 style address format - [1:2:3::4]:port */
-		p = strchr(server, ']');
-		if (*server == '[' && p != NULL)
-		{
-			if (*(p + 1) == ':' && *(p + 2) != '\0')
-				g_tcp_port_rdp = strtol(p + 2, NULL, 10);
-			/* remove the port number and brackets from the address */
-			*p = '\0';
-			strncpy(server, server + 1, strlen(server));
-		}
-	}
-	else
-	{
-		/* DNS name or IPv4 style address format - server.example.com:port or 1.2.3.4:port */
-		p = strchr(server, ':');
-		if (p != NULL)
-		{
-			g_tcp_port_rdp = strtol(p + 1, NULL, 10);
-			*p = 0;
-		}
-	}
-#else /* no IPv6 support */
-	p = strchr(server, ':');
-	if (p != NULL)
-	{
-		g_tcp_port_rdp = strtol(p + 1, NULL, 10);
-		*p = 0;
-	}
-#endif /* IPv6 */
-
+	return rdesktop_config_parse_server_endpoint(config);
 }
 
 // [WxH|P%|W%xH%][@DPI][+X[+Y]]|workarea
@@ -1870,12 +1830,6 @@ main(int argc, char *argv[])
 		usage(argv[0]);
 		return EX_USAGE;
 	}
-	if (!rdesktop_config_validate(&config))
-	{
-		logger(Core, Error, "Invalid shared session configuration");
-		return EX_USAGE;
-	}
-	rdesktop_config_apply_to_legacy(&config);
 	if (g_local_cursor)
 	{
 		/* there is no point wasting bandwidth on cursor shadows
@@ -1883,24 +1837,30 @@ main(int argc, char *argv[])
 		g_rdp5_performanceflags |= PERF_DISABLE_CURSOR_SHADOW;
 	}
 
-	STRNCPY(server, argv[optind], sizeof(server));
-	if (string_has_rdp_uri_scheme(server))
+	STRNCPY(config.server, argv[optind], sizeof(config.server));
+	if (string_has_rdp_uri_scheme(config.server))
 	{
-		if (!parse_rdp_uri(server, server, sizeof(server), domain, sizeof(domain), shell,
+		if (!parse_rdp_uri(config.server, &config, domain, sizeof(domain), shell,
 				   sizeof(shell), directory, sizeof(directory), username_option,
 				   password_option, domain_option, shell_option, directory_option,
 				   keymap_option, geometry_option, fullscreen_option, depth_option))
 			return EX_USAGE;
 	}
-	else if (filename_has_rdp_suffix(server))
+	else if (filename_has_rdp_suffix(config.server))
 	{
-		if (!parse_rdp_file(server, server, sizeof(server), domain, sizeof(domain), shell,
+		if (!parse_rdp_file(config.server, &config, domain, sizeof(domain), shell,
 				    sizeof(shell), directory, sizeof(directory), username_option,
 				    password_option, domain_option, shell_option, directory_option,
 				    keymap_option, geometry_option, fullscreen_option, depth_option))
 			return EX_USAGE;
 	}
-	parse_server_and_port(server);
+	if (!parse_server_and_port(&config) || !rdesktop_config_validate(&config))
+	{
+		logger(Core, Error, "Invalid server endpoint or shared session configuration");
+		return EX_USAGE;
+	}
+	rdesktop_config_apply_to_legacy(&config);
+	STRNCPY(server, config.server, sizeof(server));
 	if (g_password[0])
 		flags |= RDP_INFO_AUTOLOGON;
 

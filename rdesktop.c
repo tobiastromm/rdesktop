@@ -1999,6 +1999,9 @@ main(int argc, char *argv[])
 		return return_after_credential_cleanup(&config, EX_USAGE);
 	}
 
+	if (!rdpear_preflight())
+		return return_after_credential_cleanup(&config, EX_USAGE);
+
 	if (g_remote_guard && (g_remote_guard_helper == NULL || g_remote_guard_helper[0] == 0))
 		g_remote_guard_helper = "rdesktop-rdpear-helper";
 

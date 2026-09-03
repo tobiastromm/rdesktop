@@ -177,7 +177,11 @@ ntlmssp_ntowfv1(const char *password, uint8 *hash)
 	password_utf16 = ntlmssp_string_utf16(password ? password : "");
 	md4_init(&md4);
 	md4_update(&md4, s_length(password_utf16), password_utf16->data);
+#if NETTLE_VERSION_MAJOR >= 4
+	md4_digest(&md4, hash);
+#else
 	md4_digest(&md4, NTLMSSP_NTOWF_SIZE, hash);
+#endif
 	s_free(password_utf16);
 }
 

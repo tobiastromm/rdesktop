@@ -101,6 +101,11 @@ RD_BOOL cssp_remote_guard_has_security_context(void);
 STREAM cssp_remote_guard_wrap(STREAM in);
 STREAM cssp_remote_guard_unwrap(STREAM in);
 STREAM rdpear_call_helper(const char *package_name, STREAM request);
+#ifdef _WIN32
+RD_BOOL rdpear_preflight(void);
+#else
+#define rdpear_preflight() True
+#endif
 /* licence.c */
 void licence_process(STREAM s);
 /* mcs.c */

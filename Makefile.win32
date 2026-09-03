@@ -25,7 +25,7 @@ WIN32_SYSTEM_LIBS = -lbcrypt -ladvapi32 -lshell32 -lws2_32
 CORE_SOURCES = tcp.c asn.c iso.c mcs.c secure.c licence.c rdp.c orders.c \
 	bitmap.c cache.c rdp5.c channels.c rdpdr.c addin.c rdpdr_devices_win32.c \
 	mppc.c pstcache.c lspci.c seamless.c \
-	ssl.c utils.c stream.c dvc.c rdpear.c rdpedisp.c cssp.c ntlmssp.c \
+	ssl.c utils.c stream.c dvc.c rdpear_win32.c rdpedisp.c cssp.c ntlmssp.c \
 	spnego.c pkix_asn1_tab.c config.c platform.c
 CLI_SOURCES = rdesktop.c
 WIN32_SOURCES = $(CLI_SOURCES) $(CORE_SOURCES)
@@ -34,6 +34,7 @@ CONFIG_TEST = $(TEST_OBJ_DIR)/config-test.exe
 PLATFORM_TEST = $(TEST_OBJ_DIR)/platform-test.exe
 ADDIN_TEST = $(TEST_OBJ_DIR)/addin-test.exe
 RDPDR_TEST = $(TEST_OBJ_DIR)/rdpdr-test.exe
+RDPEAR_TEST = $(TEST_OBJ_DIR)/rdpear-test.exe
 
 # These official 1.9.1 sources remain in-tree and are intentionally deferred
 # until their Windows platform implementations are rebuilt.
@@ -60,11 +61,12 @@ directories:
 $(OBJ_DIR)/%.o: %.c | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
-tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDPDR_TEST)
+tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDPDR_TEST) $(RDPEAR_TEST)
 	"$(CONFIG_TEST)"
 	"$(PLATFORM_TEST)"
 	"$(ADDIN_TEST)"
 	"$(RDPDR_TEST)"
+	"$(RDPEAR_TEST)"
 
 $(CONFIG_TEST): tests/config_test.c config.c config.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -I. -o $@ tests/config_test.c config.c
@@ -77,6 +79,9 @@ $(ADDIN_TEST): tests/addin_win32_test.c addin.c | directories
 
 $(RDPDR_TEST): tests/rdpdr_win32_test.c rdpdr_devices_win32.c | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ tests/rdpdr_win32_test.c rdpdr_devices_win32.c -lws2_32
+
+$(RDPEAR_TEST): tests/rdpear_win32_test.c rdpear_win32.c | directories
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ tests/rdpear_win32_test.c rdpear_win32.c -lws2_32
 
 package: preflight
 	"$(POWERSHELL)" -NoProfile -ExecutionPolicy Bypass -File package-win32.ps1 -BinDir "$(BIN_DIR)" -PackageDir "$(PACKAGE_DIR)" -PackageName "rdesktop-$(TARGET_NAME).zip"

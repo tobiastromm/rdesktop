@@ -22,6 +22,7 @@
 #include <gssapi/gssapi.h>
 #endif
 #include <nettle/sha2.h>
+#include <nettle/version.h>
 #include "rdesktop.h"
 #include "ntlmssp.h"
 #include "spnego.h"
@@ -720,7 +721,11 @@ cssp_build_pubkey_binding(STREAM pubkey, const uint8 *nonce, RD_BOOL client_to_s
 	sha256_update(&sha256, strlen(magic) + 1, (const uint8 *) magic);
 	sha256_update(&sha256, CSSP_NONCE_SIZE, nonce);
 	sha256_update(&sha256, s_length(pubkey), pubkey->data);
+#if NETTLE_VERSION_MAJOR >= 4
+	sha256_digest(&sha256, digest);
+#else
 	sha256_digest(&sha256, sizeof(digest), digest);
+#endif
 
 	out = s_alloc(sizeof(digest));
 	out_uint8a(out, digest, sizeof(digest));

@@ -1,0 +1,69 @@
+# Modern 64-bit Windows build foundation for rdesktop.
+# Invoke from the repository root with a MinGW-w64 x64 toolchain on PATH.
+
+CC = x86_64-w64-mingw32-gcc
+POWERSHELL = powershell.exe
+
+TARGET_NAME = win64-modern-mingw64
+BUILD_ROOT = build
+TARGET_DIR = $(BUILD_ROOT)/$(TARGET_NAME)
+OBJ_DIR = $(TARGET_DIR)/obj
+BIN_DIR = $(TARGET_DIR)/bin
+PACKAGE_DIR = $(TARGET_DIR)/package
+TEST_OBJ_DIR = $(OBJ_DIR)/tests
+PACKAGE_ZIP = $(PACKAGE_DIR)/rdesktop-$(TARGET_NAME).zip
+
+VERSION = 1.9.1
+CPPFLAGS = -D_WIN32 -DWIN32_LEAN_AND_MEAN -DL_ENDIAN -DHAVE_STDINT_H \
+	-DPACKAGE_VERSION=\"$(VERSION)\" -DKEYMAP_PATH=\"keymaps/\"
+CFLAGS = -std=gnu99 -O2 -Wall -Wextra
+LDFLAGS =
+
+# Keep the upstream 1.9.1 protocol inventory explicit. Platform replacements
+# required to link a Windows client will be introduced in later stages.
+CORE_SOURCES = tcp.c asn.c iso.c mcs.c secure.c licence.c rdp.c orders.c \
+	bitmap.c cache.c rdp5.c channels.c rdpdr.c addin.c serial.c printer.c \
+	disk.c parallel.c printercache.c mppc.c pstcache.c lspci.c seamless.c \
+	ssl.c utils.c stream.c dvc.c rdpear.c rdpedisp.c cssp.c ntlmssp.c \
+	spnego.c pkix_asn1_tab.c config.c
+CLI_SOURCES = rdesktop.c
+WIN32_SOURCES = $(CLI_SOURCES) $(CORE_SOURCES)
+WIN32_OBJECTS = $(addprefix $(OBJ_DIR)/,$(WIN32_SOURCES:.c=.o))
+CONFIG_TEST = $(TEST_OBJ_DIR)/config-test.exe
+
+# These official 1.9.1 sources remain in-tree and are intentionally deferred
+# until their Windows platform implementations are rebuilt.
+DEFERRED_PLATFORM_SOURCES = xwin.c xgui.c xkeymap.c ewmhints.c xclip.c \
+	ctrl.c cliprdr.c scard.c rdpsnd.c \
+	rdpsnd_alsa.c rdpsnd_dsp.c rdpsnd_input.c rdpsnd_libao.c \
+	rdpsnd_oss.c rdpsnd_pulse.c rdpsnd_sgi.c rdpsnd_sun.c
+
+.PHONY: all preflight directories clean package tests
+
+all: preflight directories $(WIN32_OBJECTS)
+	@echo Win32 objects compiled. Linking starts after the platform backend is rebuilt.
+
+preflight:
+	@where $(CC) >NUL 2>NUL || (echo ERROR: $(CC) not found on PATH. Add the MinGW-w64 x64 toolchain to PATH or override CC. & exit /B 1)
+	@where $(POWERSHELL) >NUL 2>NUL || (echo ERROR: $(POWERSHELL) not found on PATH. Override POWERSHELL if necessary. & exit /B 1)
+
+directories:
+	@if not exist "$(OBJ_DIR)" mkdir "$(OBJ_DIR)"
+	@if not exist "$(BIN_DIR)" mkdir "$(BIN_DIR)"
+	@if not exist "$(PACKAGE_DIR)" mkdir "$(PACKAGE_DIR)"
+	@if not exist "$(TEST_OBJ_DIR)" mkdir "$(TEST_OBJ_DIR)"
+
+$(OBJ_DIR)/%.o: %.c | directories
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+
+tests: preflight directories $(CONFIG_TEST)
+	"$(CONFIG_TEST)"
+
+$(CONFIG_TEST): tests/config_test.c config.c config.h | directories
+	$(CC) $(CPPFLAGS) $(CFLAGS) -I. -o $@ tests/config_test.c config.c
+
+package: preflight
+	"$(POWERSHELL)" -NoProfile -ExecutionPolicy Bypass -File package-win32.ps1 -BinDir "$(BIN_DIR)" -PackageDir "$(PACKAGE_DIR)" -PackageName "rdesktop-$(TARGET_NAME).zip"
+
+clean:
+	@if exist "$(TARGET_DIR)" rmdir /S /Q "$(TARGET_DIR)"

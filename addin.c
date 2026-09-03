@@ -18,6 +18,45 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#ifdef _WIN32
+#include "rdesktop.h"
+
+RD_BOOL
+addin_parse_option(const char *optarg)
+{
+	UNUSED(optarg);
+	logger(Core, Error, "AddIn process channels are not supported on this Win32 build");
+	return False;
+}
+
+RD_BOOL
+addin_init(void)
+{
+	return True;
+}
+
+void
+addin_add_fds(int *n, fd_set *rfds, fd_set *wfds)
+{
+	UNUSED(n);
+	UNUSED(rfds);
+	UNUSED(wfds);
+}
+
+void
+addin_check_fds(fd_set *rfds, fd_set *wfds)
+{
+	UNUSED(rfds);
+	UNUSED(wfds);
+}
+
+void
+addin_deinit(void)
+{
+}
+
+#else
+
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <fcntl.h>
@@ -528,3 +567,5 @@ addin_deinit(void)
 
 	g_num_addins = 0;
 }
+
+#endif

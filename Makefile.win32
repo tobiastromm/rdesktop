@@ -32,6 +32,7 @@ WIN32_SOURCES = $(CLI_SOURCES) $(CORE_SOURCES)
 WIN32_OBJECTS = $(addprefix $(OBJ_DIR)/,$(WIN32_SOURCES:.c=.o))
 CONFIG_TEST = $(TEST_OBJ_DIR)/config-test.exe
 PLATFORM_TEST = $(TEST_OBJ_DIR)/platform-test.exe
+ADDIN_TEST = $(TEST_OBJ_DIR)/addin-test.exe
 
 # These official 1.9.1 sources remain in-tree and are intentionally deferred
 # until their Windows platform implementations are rebuilt.
@@ -58,15 +59,19 @@ directories:
 $(OBJ_DIR)/%.o: %.c | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
-tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST)
+tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST)
 	"$(CONFIG_TEST)"
 	"$(PLATFORM_TEST)"
+	"$(ADDIN_TEST)"
 
 $(CONFIG_TEST): tests/config_test.c config.c config.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -I. -o $@ tests/config_test.c config.c
 
 $(PLATFORM_TEST): tests/platform_test.c platform.c platform.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ tests/platform_test.c platform.c $(WIN32_SYSTEM_LIBS)
+
+$(ADDIN_TEST): tests/addin_win32_test.c addin.c | directories
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ tests/addin_win32_test.c addin.c -lws2_32
 
 package: preflight
 	"$(POWERSHELL)" -NoProfile -ExecutionPolicy Bypass -File package-win32.ps1 -BinDir "$(BIN_DIR)" -PackageDir "$(PACKAGE_DIR)" -PackageName "rdesktop-$(TARGET_NAME).zip"

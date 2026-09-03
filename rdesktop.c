@@ -662,8 +662,8 @@ static RD_BOOL
 read_rdp_file_line(FILE *fp, RD_BOOL utf16_le, RD_BOOL utf16_be, char *line, size_t size);
 
 static RD_BOOL
-parse_rdp_file(const char *filename, RDESKTOP_CONFIG *config, char *domain,
-	       size_t domain_size, char *shell, size_t shell_size, char *directory,
+parse_rdp_file(const char *filename, RDESKTOP_CONFIG *config, char *shell,
+	       size_t shell_size, char *directory,
 	       size_t directory_size, RD_BOOL username_option, RD_BOOL password_option,
 	       RD_BOOL domain_option, RD_BOOL shell_option, RD_BOOL directory_option,
 	       RD_BOOL keymap_option, RD_BOOL geometry_option, RD_BOOL fullscreen_option,
@@ -717,13 +717,12 @@ parse_rdp_file(const char *filename, RDESKTOP_CONFIG *config, char *domain,
 			}
 			else if (!username_option && rdp_key_equals(key, "username"))
 			{
-				xfree(g_username);
-				g_username = (char *) xmalloc(strlen(value) + 1);
-				strcpy(g_username, value);
+				STRNCPY(config->username, value, sizeof(config->username));
+				config->username_set = True;
 			}
 			else if (!domain_option && rdp_key_equals(key, "domain"))
 			{
-				STRNCPY(domain, value, domain_size);
+				STRNCPY(config->domain, value, sizeof(config->domain));
 			}
 			else if (!shell_option && rdp_key_equals(key, "alternate shell"))
 			{
@@ -943,8 +942,8 @@ rdp_uri_apply_integer_setting(RDESKTOP_CONFIG *config, const char *key, long num
 }
 
 static RD_BOOL
-parse_rdp_uri(const char *uri, RDESKTOP_CONFIG *config, char *domain,
-              size_t domain_size, char *shell, size_t shell_size, char *directory,
+parse_rdp_uri(const char *uri, RDESKTOP_CONFIG *config, char *shell,
+              size_t shell_size, char *directory,
               size_t directory_size, RD_BOOL username_option, RD_BOOL password_option,
               RD_BOOL domain_option, RD_BOOL shell_option, RD_BOOL directory_option,
               RD_BOOL keymap_option, RD_BOOL geometry_option, RD_BOOL fullscreen_option,
@@ -993,13 +992,12 @@ parse_rdp_uri(const char *uri, RDESKTOP_CONFIG *config, char *domain,
 			}
 			else if (!username_option && rdp_key_equals(key, "username"))
 			{
-				xfree(g_username);
-				g_username = (char *) xmalloc(strlen(value) + 1);
-				strcpy(g_username, value);
+				STRNCPY(config->username, value, sizeof(config->username));
+				config->username_set = True;
 			}
 			else if (!domain_option && rdp_key_equals(key, "domain"))
 			{
-				STRNCPY(domain, value, domain_size);
+				STRNCPY(config->domain, value, sizeof(config->domain));
 			}
 			else if (!shell_option && rdp_key_equals(key, "alternate shell"))
 			{
@@ -1460,8 +1458,8 @@ main(int argc, char *argv[])
 				break;
 
 			case 'u':
-				g_username = (char *) xmalloc(strlen(optarg) + 1);
-				strcpy(g_username, optarg);
+				STRNCPY(config.username, optarg, sizeof(config.username));
+				config.username_set = True;
 				username_option = True;
 				break;
 
@@ -1470,7 +1468,7 @@ main(int argc, char *argv[])
 				break;
 
 			case 'd':
-				STRNCPY(domain, optarg, sizeof(domain));
+				STRNCPY(config.domain, optarg, sizeof(config.domain));
 				domain_option = True;
 				break;
 
@@ -1840,7 +1838,7 @@ main(int argc, char *argv[])
 	STRNCPY(config.server, argv[optind], sizeof(config.server));
 	if (string_has_rdp_uri_scheme(config.server))
 	{
-		if (!parse_rdp_uri(config.server, &config, domain, sizeof(domain), shell,
+		if (!parse_rdp_uri(config.server, &config, shell,
 				   sizeof(shell), directory, sizeof(directory), username_option,
 				   password_option, domain_option, shell_option, directory_option,
 				   keymap_option, geometry_option, fullscreen_option, depth_option))
@@ -1848,7 +1846,7 @@ main(int argc, char *argv[])
 	}
 	else if (filename_has_rdp_suffix(config.server))
 	{
-		if (!parse_rdp_file(config.server, &config, domain, sizeof(domain), shell,
+		if (!parse_rdp_file(config.server, &config, shell,
 				    sizeof(shell), directory, sizeof(directory), username_option,
 				    password_option, domain_option, shell_option, directory_option,
 				    keymap_option, geometry_option, fullscreen_option, depth_option))
@@ -1859,7 +1857,7 @@ main(int argc, char *argv[])
 		logger(Core, Error, "Invalid server endpoint or shared session configuration");
 		return EX_USAGE;
 	}
-	rdesktop_config_apply_to_legacy(&config);
+	rdesktop_config_apply_to_legacy(&config, domain, sizeof(domain));
 	STRNCPY(server, config.server, sizeof(server));
 	if (g_password[0])
 		flags |= RDP_INFO_AUTOLOGON;
@@ -1934,11 +1932,10 @@ main(int argc, char *argv[])
 			       "could not determine username, use -u <username> to set one");
 			return EX_OSERR;
 		}
-		/* +1 for trailing \0 */
-		int pwlen = strlen(pw->pw_name) + 1;
-		g_username = (char *) xmalloc(pwlen);
-		STRNCPY(g_username, pw->pw_name, pwlen);
+		STRNCPY(config.username, pw->pw_name, sizeof(config.username));
+		config.username_set = True;
 	}
+	rdesktop_config_apply_to_legacy(&config, domain, sizeof(domain));
 
 	if (g_codepage[0] == 0)
 	{

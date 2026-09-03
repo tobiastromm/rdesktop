@@ -5,11 +5,25 @@
 RDP_VERSION g_rdp_version = RDP_V4;
 char g_hostname[16] = "legacy-host";
 int g_tcp_port_rdp = TCP_PORT_RDP;
+char *g_username = NULL;
+
+void *
+xmalloc(int size)
+{
+	return malloc((size_t) size);
+}
+
+void
+xfree(void *memory)
+{
+	free(memory);
+}
 
 int
 main(void)
 {
 	RDESKTOP_CONFIG value;
+	char domain[256];
 	rdesktop_config_init_defaults(&value);
 	if (value.rdp_version != RDP_V5 || value.hostname[0] != '\0' ||
 	    !rdesktop_config_validate(&value))
@@ -23,11 +37,30 @@ main(void)
 	value.rdp_version = RDP_V5;
 	STRNCPY(value.hostname, "client-host", sizeof(value.hostname));
 	g_rdp_version = RDP_V4;
-	rdesktop_config_apply_to_legacy(&value);
+	rdesktop_config_apply_to_legacy(&value, domain, sizeof(domain));
 	if (g_rdp_version != RDP_V5)
 		return 4;
 	if (strcmp(g_hostname, "client-host") != 0 || g_tcp_port_rdp != TCP_PORT_RDP)
 		return 5;
+	if (g_username != NULL || domain[0] != '\0')
+		return 11;
+
+	STRNCPY(value.username, "alice", sizeof(value.username));
+	value.username_set = True;
+	STRNCPY(value.domain, "EXAMPLE", sizeof(value.domain));
+	rdesktop_config_apply_to_legacy(&value, domain, sizeof(domain));
+	if (g_username == NULL || strcmp(g_username, "alice") != 0 ||
+	    strcmp(domain, "EXAMPLE") != 0)
+		return 12;
+	value.domain[0] = '\0';
+	rdesktop_config_apply_to_legacy(&value, domain, sizeof(domain));
+	if (strcmp(g_username, "alice") != 0 || domain[0] != '\0')
+		return 13;
+	value.username[0] = '\0';
+	value.username_set = True;
+	rdesktop_config_apply_to_legacy(&value, domain, sizeof(domain));
+	if (g_username == NULL || g_username[0] != '\0')
+		return 14;
 
 	rdesktop_config_init_defaults(&value);
 	STRNCPY(value.server, "server.example.com", sizeof(value.server));

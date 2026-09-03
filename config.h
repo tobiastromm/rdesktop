@@ -11,12 +11,16 @@ typedef struct rdesktop_config
 	char hostname[16];
 	char server[256];
 	uint16 port;
+	char username[256];
+	RD_BOOL username_set;
+	char domain[256];
 }
 RDESKTOP_CONFIG;
 
 void rdesktop_config_init_defaults(RDESKTOP_CONFIG *config);
 RD_BOOL rdesktop_config_validate(const RDESKTOP_CONFIG *config);
 RD_BOOL rdesktop_config_parse_server_endpoint(RDESKTOP_CONFIG *config);
-void rdesktop_config_apply_to_legacy(const RDESKTOP_CONFIG *config);
+void rdesktop_config_apply_to_legacy(const RDESKTOP_CONFIG *config, char *domain,
+				     size_t domain_size);
 
 #endif

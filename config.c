@@ -5,6 +5,7 @@
 extern RDP_VERSION g_rdp_version;
 extern char g_hostname[16];
 extern int g_tcp_port_rdp;
+extern char *g_username;
 
 static RD_BOOL
 rdesktop_config_parse_port(const char *value, uint16 *port)
@@ -73,9 +74,18 @@ rdesktop_config_parse_server_endpoint(RDESKTOP_CONFIG *config)
 }
 
 void
-rdesktop_config_apply_to_legacy(const RDESKTOP_CONFIG *config)
+rdesktop_config_apply_to_legacy(const RDESKTOP_CONFIG *config, char *domain,
+				size_t domain_size)
 {
 	g_rdp_version = config->rdp_version;
 	STRNCPY(g_hostname, config->hostname, sizeof(g_hostname));
 	g_tcp_port_rdp = config->port;
+	xfree(g_username);
+	g_username = NULL;
+	if (config->username_set)
+	{
+		g_username = (char *) xmalloc(strlen(config->username) + 1);
+		strcpy(g_username, config->username);
+	}
+	STRNCPY(domain, config->domain, domain_size);
 }

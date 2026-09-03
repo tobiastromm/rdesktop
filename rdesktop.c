@@ -1552,7 +1552,7 @@ main(int argc, char *argv[])
 				break;
 
 			case 'n':
-				STRNCPY(g_hostname, optarg, sizeof(g_hostname));
+				STRNCPY(config.hostname, optarg, sizeof(config.hostname));
 				break;
 
 			case 'k':

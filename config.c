@@ -2,6 +2,7 @@
 #include "config.h"
 
 extern RDP_VERSION g_rdp_version;
+extern char g_hostname[16];
 
 void
 rdesktop_config_init_defaults(RDESKTOP_CONFIG *config)
@@ -21,4 +22,5 @@ void
 rdesktop_config_apply_to_legacy(const RDESKTOP_CONFIG *config)
 {
 	g_rdp_version = config->rdp_version;
+	STRNCPY(g_hostname, config->hostname, sizeof(g_hostname));
 }

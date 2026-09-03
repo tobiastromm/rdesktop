@@ -8,6 +8,7 @@ typedef struct rdesktop_config
 {
 	/* Add fields only when their configuration source is migrated. */
 	RDP_VERSION rdp_version;
+	char hostname[16];
 }
 RDESKTOP_CONFIG;
 

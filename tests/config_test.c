@@ -6,6 +6,23 @@ RDP_VERSION g_rdp_version = RDP_V4;
 char g_hostname[16] = "legacy-host";
 int g_tcp_port_rdp = TCP_PORT_RDP;
 char *g_username = NULL;
+uint32 g_requested_session_width = 1024;
+uint32 g_requested_session_height = 768;
+window_size_type_t g_window_size_type = Fixed;
+int g_xpos = 0;
+int g_ypos = 0;
+int g_pos = 0;
+int g_dpi = 0;
+int g_server_depth = -1;
+char g_keymapname[PATH_MAX] = "";
+
+void
+logger(log_subject_t subject, log_level_t level, char *format, ...)
+{
+	(void) subject;
+	(void) level;
+	(void) format;
+}
 
 void *
 xmalloc(int size)
@@ -61,6 +78,54 @@ main(void)
 	rdesktop_config_apply_to_legacy(&value, domain, sizeof(domain));
 	if (g_username == NULL || g_username[0] != '\0')
 		return 14;
+
+	rdesktop_config_init_defaults(&value);
+	if (value.width != 1024 || value.height != 768 ||
+	    value.geometry_type != Fixed || value.geometry_set ||
+	    value.colour_depth != -1 || value.keymap[0] != '\0')
+		return 15;
+	if (rdesktop_config_parse_geometry(&value, "1280x720") != 0 ||
+	    value.width != 1280 || value.height != 720 || value.geometry_type != Fixed)
+		return 16;
+	rdesktop_config_init_defaults(&value);
+	if (rdesktop_config_parse_geometry(&value, "80%") != 0 ||
+	    value.width != 80 || value.height != 80 || value.geometry_type != PercentageOfScreen)
+		return 17;
+	rdesktop_config_init_defaults(&value);
+	if (rdesktop_config_parse_geometry(&value, "80%x60%@144-10+20") != 0 ||
+	    value.width != 80 || value.height != 60 || value.dpi != 144 ||
+	    value.x != -10 || value.y != 20 || value.position != 3)
+		return 18;
+	rdesktop_config_init_defaults(&value);
+	if (rdesktop_config_parse_geometry(&value, "workarea") != 0 ||
+	    value.geometry_type != Workarea)
+		return 19;
+	rdesktop_config_init_defaults(&value);
+	if (rdesktop_config_parse_geometry(&value, "800x") == 0)
+		return 20;
+
+	value.colour_depth = 8;
+	if (!rdesktop_config_validate(&value)) return 21;
+	value.colour_depth = 15;
+	if (!rdesktop_config_validate(&value)) return 22;
+	value.colour_depth = 16;
+	if (!rdesktop_config_validate(&value)) return 23;
+	value.colour_depth = 24;
+	if (!rdesktop_config_validate(&value)) return 24;
+	value.colour_depth = 32;
+	if (!rdesktop_config_validate(&value)) return 25;
+	value.colour_depth = 12;
+	if (rdesktop_config_validate(&value)) return 26;
+
+	value.colour_depth = 16;
+	STRNCPY(value.keymap, "pt-br", sizeof(value.keymap));
+	if (rdesktop_config_parse_geometry(&value, "640x480") != 0)
+		return 27;
+	rdesktop_config_apply_to_legacy(&value, domain, sizeof(domain));
+	if (g_server_depth != 16 || strcmp(g_keymapname, "pt-br") != 0 ||
+	    g_requested_session_width != value.width ||
+	    g_requested_session_height != value.height)
+		return 28;
 
 	rdesktop_config_init_defaults(&value);
 	STRNCPY(value.server, "server.example.com", sizeof(value.server));

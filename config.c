@@ -6,6 +6,15 @@ extern RDP_VERSION g_rdp_version;
 extern char g_hostname[16];
 extern int g_tcp_port_rdp;
 extern char *g_username;
+extern uint32 g_requested_session_width;
+extern uint32 g_requested_session_height;
+extern window_size_type_t g_window_size_type;
+extern int g_xpos;
+extern int g_ypos;
+extern int g_pos;
+extern int g_dpi;
+extern int g_server_depth;
+extern char g_keymapname[PATH_MAX];
 
 static RD_BOOL
 rdesktop_config_parse_port(const char *value, uint16 *port)
@@ -27,6 +36,10 @@ rdesktop_config_init_defaults(RDESKTOP_CONFIG *config)
 	memset(config, 0, sizeof(*config));
 	config->rdp_version = RDP_V5;
 	config->port = TCP_PORT_RDP;
+	config->width = 1024;
+	config->height = 768;
+	config->geometry_type = Fixed;
+	config->colour_depth = -1;
 }
 
 RD_BOOL
@@ -34,7 +47,120 @@ rdesktop_config_validate(const RDESKTOP_CONFIG *config)
 {
 	return config != NULL &&
 		(config->rdp_version == RDP_V4 || config->rdp_version == RDP_V5) &&
-		config->port != 0;
+		config->port != 0 &&
+		(config->colour_depth == -1 || config->colour_depth == 8 ||
+		 config->colour_depth == 15 || config->colour_depth == 16 ||
+		 config->colour_depth == 24 || config->colour_depth == 32);
+}
+
+int
+rdesktop_config_parse_geometry(RDESKTOP_CONFIG *config, const char *geometry)
+{
+	sint32 value;
+	const char *cursor;
+	char *end;
+
+	if (strcmp(geometry, "workarea") == 0)
+	{
+		config->geometry_type = Workarea;
+		config->geometry_set = True;
+		return 0;
+	}
+	cursor = geometry;
+	value = strtol(cursor, &end, 10);
+	if (cursor == end || value <= 0)
+	{
+		logger(Core, Error, "invalid geometry, expected positive integer for width");
+		return -1;
+	}
+	config->width = value;
+	cursor = end;
+	if (*cursor != '%' && *cursor != 'x')
+	{
+		logger(Core, Error, "invalid geometry, expected '%%' or 'x' after width");
+		return -1;
+	}
+	if (*cursor == '%')
+	{
+		config->geometry_type = PercentageOfScreen;
+		cursor++;
+	}
+	if (*cursor == 'x')
+	{
+		cursor++;
+		value = strtol(cursor, &end, 10);
+		if (cursor == end || value <= 0)
+		{
+			logger(Core, Error, "invalid geometry, expected positive integer for height");
+			return -1;
+		}
+		config->height = value;
+		cursor = end;
+		if (*cursor == '%' && config->geometry_type == Fixed)
+		{
+			logger(Core, Error, "invalid geometry, unexpected '%%' after height");
+			return -1;
+		}
+		if (config->geometry_type == PercentageOfScreen)
+		{
+			if (*cursor != '%')
+			{
+				logger(Core, Error, "invalid geometry, expected '%%' after height");
+				return -1;
+			}
+			cursor++;
+		}
+	}
+	else if (config->geometry_type == PercentageOfScreen)
+		config->height = config->width;
+	else
+	{
+		logger(Core, Error, "invalid geometry, missing height (WxH)");
+		return -1;
+	}
+	if (*cursor == '@')
+	{
+		cursor++;
+		value = strtol(cursor, &end, 10);
+		if (cursor == end || value <= 0)
+		{
+			logger(Core, Error, "invalid geometry, expected positive integer for DPI");
+			return -1;
+		}
+		config->dpi = value;
+		cursor = end;
+	}
+	if (*cursor == '+' || *cursor == '-')
+	{
+		value = strtol(cursor, &end, 10);
+		if (cursor == end)
+		{
+			logger(Core, Error, "invalid geometry, expected an integer for X position");
+			return -1;
+		}
+		config->position |= value < 0 ? 2 : 1;
+		config->x = value;
+		cursor = end;
+	}
+	if (*cursor == '+' || *cursor == '-')
+	{
+		value = strtol(cursor, &end, 10);
+		if (cursor == end)
+		{
+			logger(Core, Error, "invalid geometry, expected an integer for Y position");
+			return -1;
+		}
+		config->position |= value < 0 ? 4 : 1;
+		config->y = value;
+		cursor = end;
+	}
+	if (*cursor != '\0')
+	{
+		logger(Core, Error, "invalid geometry, unexpected characters at end of string");
+		return -1;
+	}
+	config->geometry_set = True;
+	return 0;
 }
 
 RD_BOOL
@@ -88,4 +214,16 @@ rdesktop_config_apply_to_legacy(const RDESKTOP_CONFIG *config, char *domain,
 		strcpy(g_username, config->username);
 	}
 	STRNCPY(domain, config->domain, domain_size);
+	if (config->geometry_set)
+	{
+		g_requested_session_width = config->width;
+		g_requested_session_height = config->height;
+		g_window_size_type = config->geometry_type;
+		g_xpos = config->x;
+		g_ypos = config->y;
+		g_pos = config->position;
+		g_dpi = config->dpi;
+	}
+	g_server_depth = config->colour_depth;
+	STRNCPY(g_keymapname, config->keymap, sizeof(g_keymapname));
 }

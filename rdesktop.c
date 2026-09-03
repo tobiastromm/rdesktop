@@ -734,7 +734,7 @@ parse_rdp_file(const char *filename, RDESKTOP_CONFIG *config, char *shell,
 			}
 			else if (!keymap_option && rdp_key_equals(key, "keyboard layout"))
 			{
-				STRNCPY(g_keymapname, value, sizeof(g_keymapname));
+				STRNCPY(config->keymap, value, sizeof(config->keymap));
 			}
 			else if (!password_option && rdp_key_equals(key, "password"))
 			{
@@ -756,7 +756,7 @@ parse_rdp_file(const char *filename, RDESKTOP_CONFIG *config, char *shell,
 			else if (!depth_option && rdp_key_equals(key, "session bpp"))
 			{
 				if (number == 8 || number == 15 || number == 16 || number == 24 || number == 32)
-					g_server_depth = number;
+					config->colour_depth = (int) number;
 			}
 			else if (!geometry_option && !fullscreen_option &&
 				 rdp_key_equals(key, "desktopwidth"))
@@ -803,9 +803,10 @@ parse_rdp_file(const char *filename, RDESKTOP_CONFIG *config, char *shell,
 
 	if (!geometry_option && !fullscreen_option && !g_fullscreen && have_width && have_height)
 	{
-		g_requested_session_width = width;
-		g_requested_session_height = height;
-		g_window_size_type = Fixed;
+		config->width = width;
+		config->height = height;
+		config->geometry_type = Fixed;
+		config->geometry_set = True;
 	}
 
 	if (!have_server)
@@ -909,7 +910,7 @@ rdp_uri_apply_integer_setting(RDESKTOP_CONFIG *config, const char *key, long num
 	else if (!depth_option && rdp_key_equals(key, "session bpp"))
 	{
 		if (number == 8 || number == 15 || number == 16 || number == 24 || number == 32)
-			g_server_depth = number;
+			config->colour_depth = (int) number;
 	}
 	else if (!geometry_option && !fullscreen_option && rdp_key_equals(key, "desktopwidth"))
 	{
@@ -1009,7 +1010,7 @@ parse_rdp_uri(const char *uri, RDESKTOP_CONFIG *config, char *shell,
 			}
 			else if (!keymap_option && rdp_key_equals(key, "keyboard layout"))
 			{
-				STRNCPY(g_keymapname, value, sizeof(g_keymapname));
+				STRNCPY(config->keymap, value, sizeof(config->keymap));
 			}
 			else if (!password_option && rdp_key_equals(key, "password"))
 			{
@@ -1032,9 +1033,10 @@ parse_rdp_uri(const char *uri, RDESKTOP_CONFIG *config, char *shell,
 
 	if (!geometry_option && !fullscreen_option && !g_fullscreen && have_width && have_height)
 	{
-		g_requested_session_width = width;
-		g_requested_session_height = height;
-		g_window_size_type = Fixed;
+		config->width = width;
+		config->height = height;
+		config->geometry_type = Fixed;
+		config->geometry_set = True;
 	}
 
 	if (!have_server)
@@ -1514,14 +1516,14 @@ main(int argc, char *argv[])
 				break;
 
 			case 'k':
-				STRNCPY(g_keymapname, optarg, sizeof(g_keymapname));
+				STRNCPY(config.keymap, optarg, sizeof(config.keymap));
 				keymap_option = True;
 				break;
 
 			case 'g':
 				geometry_option = True;
 				g_fullscreen = False;
-				if (parse_geometry_string(optarg) != 0)
+				if (rdesktop_config_parse_geometry(&config, optarg) != 0)
 				{
 					return EX_USAGE;
 				}
@@ -1608,12 +1610,12 @@ main(int argc, char *argv[])
 				break;
 
 			case 'a':
-				g_server_depth = strtol(optarg, NULL, 10);
+				config.colour_depth = strtol(optarg, NULL, 10);
 				depth_option = True;
-				if (g_server_depth != 8 &&
-				    g_server_depth != 16 &&
-				    g_server_depth != 15 && g_server_depth != 24
-				    && g_server_depth != 32)
+				if (config.colour_depth != 8 &&
+				    config.colour_depth != 16 &&
+				    config.colour_depth != 15 && config.colour_depth != 24
+				    && config.colour_depth != 32)
 				{
 					logger(Core, Error,
 					       "Invalid server colour depth specified");
@@ -1964,18 +1966,20 @@ main(int argc, char *argv[])
 		STRNCPY(g_hostname, fullhostname, sizeof(g_hostname));
 	}
 
-	if (g_keymapname[0] == 0)
+	if (config.keymap[0] == 0)
 	{
 		if (locale && xkeymap_from_locale(locale))
 		{
 			logger(Core, Notice, "Autoselecting keyboard map '%s' from locale",
 			       g_keymapname);
+			STRNCPY(config.keymap, g_keymapname, sizeof(config.keymap));
 		}
 		else
 		{
-			STRNCPY(g_keymapname, "en-us", sizeof(g_keymapname));
+			STRNCPY(config.keymap, "en-us", sizeof(config.keymap));
 		}
 	}
+	rdesktop_config_apply_to_legacy(&config, domain, sizeof(domain));
 	if (locale)
 		xfree(locale);
 

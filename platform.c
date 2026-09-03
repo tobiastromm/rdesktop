@@ -4,6 +4,7 @@
 
 #ifdef _WIN32
 #include <bcrypt.h>
+#include <direct.h>
 #include <io.h>
 #include <shlobj.h>
 #include <windows.h>
@@ -114,6 +115,13 @@ platform_lock_file(int fd, int start, int length)
 	offset.Offset = (DWORD) start;
 	return LockFileEx(file, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
 			  0, (DWORD) length, 0, &offset) != 0;
+}
+
+int
+platform_make_directory(const char *path, int mode)
+{
+	UNUSED(mode);
+	return _mkdir(path);
 }
 
 void
@@ -248,6 +256,12 @@ platform_lock_file(int fd, int start, int length)
 	lock.l_start = start;
 	lock.l_len = length;
 	return fcntl(fd, F_SETLK, &lock) != -1;
+}
+
+int
+platform_make_directory(const char *path, int mode)
+{
+	return mkdir(path, mode);
 }
 
 void

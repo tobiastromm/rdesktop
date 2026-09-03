@@ -34,8 +34,7 @@
 #include <errno.h>
 #include <signal.h>
 #ifdef _WIN32
-#include <direct.h>
-#define mkdir(path, mode) _mkdir(path)
+#define mkdir(path, mode) platform_make_directory(path, mode)
 #endif
 
 #include "rdesktop.h"
@@ -1673,11 +1672,13 @@ main(int argc, char *argv[])
 				else if (str_startswith(optarg, "disk"))
 				{
 					/* -r disk:h:=/mnt/floppy */
-					disk_enum_devices(&g_num_devices, optarg + 4);
+					if (disk_enum_devices(&g_num_devices, optarg + 4) < 0)
+						return return_after_credential_cleanup(&config, EX_USAGE);
 				}
 				else if (str_startswith(optarg, "comport"))
 				{
-					serial_enum_devices(&g_num_devices, optarg + 7);
+					if (serial_enum_devices(&g_num_devices, optarg + 7) < 0)
+						return return_after_credential_cleanup(&config, EX_USAGE);
 				}
 				else if (str_startswith(optarg, "lspci"))
 				{
@@ -1690,11 +1691,13 @@ main(int argc, char *argv[])
 				}
 				else if (str_startswith(optarg, "lptport"))
 				{
-					parallel_enum_devices(&g_num_devices, optarg + 7);
+					if (parallel_enum_devices(&g_num_devices, optarg + 7) < 0)
+						return return_after_credential_cleanup(&config, EX_USAGE);
 				}
 				else if (str_startswith(optarg, "printer"))
 				{
-					printer_enum_devices(&g_num_devices, optarg + 7);
+					if (printer_enum_devices(&g_num_devices, optarg + 7) < 0)
+						return return_after_credential_cleanup(&config, EX_USAGE);
 				}
 				else if (str_startswith(optarg, "clientname"))
 				{
@@ -1721,6 +1724,10 @@ main(int argc, char *argv[])
 				{
 #ifdef WITH_SCARD
 					scard_enum_devices(&g_num_devices, optarg + 5);
+#elif defined(_WIN32)
+					logger(Core, Error,
+					       "Smartcard redirection is not supported on this Win32 build");
+					return return_after_credential_cleanup(&config, EX_USAGE);
 #else
 					logger(Core, Warning,
 					       "Not compiled with smartcard support\n");

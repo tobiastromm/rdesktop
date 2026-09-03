@@ -26,6 +26,7 @@
 #include <stdarg.h>
 #include <unistd.h>
 #include "rdesktop.h"
+#include "platform.h"
 
 #include "utils.h"
 
@@ -136,7 +137,7 @@ utils_mkdir_safe(const char *path, int mask)
 
 	res = stat(path, &st);
 	if (res == -1)
-		return mkdir(path, mask);
+		return platform_make_directory(path, mask);
 
 	if (!S_ISDIR(st.st_mode))
 	{

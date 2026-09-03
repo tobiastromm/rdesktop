@@ -11,6 +11,7 @@ const char *platform_get_home_directory(void);
 RD_BOOL platform_read_secret(const char *prompt, char *buffer, size_t size);
 RD_BOOL platform_random_bytes(uint8 *buffer, size_t size);
 RD_BOOL platform_lock_file(int fd, int start, int length);
+int platform_make_directory(const char *path, int mode);
 void platform_ignore_sigpipe(void);
 void platform_sleep_seconds(unsigned int seconds);
 

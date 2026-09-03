@@ -50,6 +50,7 @@
 #endif
 
 #include "ssl.h"
+#include "config.h"
 
 /* Reconnect timeout based on approximated cookie life-time */
 #define RECONNECT_TIMEOUT (3600+600)
@@ -1308,6 +1309,7 @@ setup_user_requested_session_size()
 int
 main(int argc, char *argv[])
 {
+	RDESKTOP_CONFIG config;
 	char server[256];
 	char fullhostname[64];
 	char domain[256];
@@ -1334,6 +1336,7 @@ main(int argc, char *argv[])
 #endif
 
 	g_launcher_program = argv[0];
+	rdesktop_config_init_defaults(&config);
 
 	/* setup debug logging from environment */
 	logger_set_subjects(getenv("RDESKTOP_DEBUG"));
@@ -1814,11 +1817,11 @@ main(int argc, char *argv[])
 				break;
 
 			case '4':
-				g_rdp_version = RDP_V4;
+				config.rdp_version = RDP_V4;
 				break;
 
 			case '5':
-				g_rdp_version = RDP_V5;
+				config.rdp_version = RDP_V5;
 				break;
 #if WITH_SCARD
 			case 'o':
@@ -1867,6 +1870,12 @@ main(int argc, char *argv[])
 		usage(argv[0]);
 		return EX_USAGE;
 	}
+	if (!rdesktop_config_validate(&config))
+	{
+		logger(Core, Error, "Invalid shared session configuration");
+		return EX_USAGE;
+	}
+	rdesktop_config_apply_to_legacy(&config);
 	if (g_local_cursor)
 	{
 		/* there is no point wasting bandwidth on cursor shadows

@@ -32,7 +32,7 @@ ASN_MOCKS=utils_mock.o rdp_protocol_mock.o asn1_mock.o
 all: test
 
 .PHONY: test
-test: $(foreach test, $(TESTS), runtest.$(test))
+test: config-model-test $(foreach test, $(TESTS), runtest.$(test))
 
 
 .PHONY: runtest.%
@@ -61,6 +61,10 @@ mcs: mcs_test.o $(MCS_MOCKS) stream.o
 asn: asn_test.o $(ASN_MOCKS) asn.o stream.o
 	$(CC) $(CFLAGS) -shared -lcgreen -o $@ $^
 
+config-model-test: config_test.o ../config.c
+	$(CC) $(CFLAGS) -I.. -o $@ config_test.o ../config.c
+	./config-model-test
+
 asn.o: ../asn.c
 	$(CC) $(CFLAGS) -c -o $@ $^
 
@@ -69,4 +73,4 @@ stream.o: ../stream.c
 
 .PHONY: clean
 clean:
-	rm -f $(TESTS) *_mock.o *_test.o
+	rm -f $(TESTS) config-model-test *_mock.o *_test.o

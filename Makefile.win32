@@ -14,10 +14,11 @@ TEST_OBJ_DIR = $(OBJ_DIR)/tests
 PACKAGE_ZIP = $(PACKAGE_DIR)/rdesktop-$(TARGET_NAME).zip
 
 VERSION = 1.9.1
-CPPFLAGS = -D_WIN32 -DWIN32_LEAN_AND_MEAN -DL_ENDIAN -DHAVE_STDINT_H \
+CPPFLAGS = -D_WIN32 -DWIN32_LEAN_AND_MEAN -DL_ENDIAN -DHAVE_STDINT_H -DIPv6 \
 	-DPACKAGE_VERSION=\"$(VERSION)\" -DKEYMAP_PATH=\"keymaps/\"
 CFLAGS = -std=gnu99 -O2 -Wall -Wextra
 LDFLAGS =
+WIN32_SYSTEM_LIBS = -lbcrypt -ladvapi32 -lshell32 -lws2_32
 
 # Keep the upstream 1.9.1 protocol inventory explicit. Platform replacements
 # required to link a Windows client will be introduced in later stages.
@@ -25,11 +26,12 @@ CORE_SOURCES = tcp.c asn.c iso.c mcs.c secure.c licence.c rdp.c orders.c \
 	bitmap.c cache.c rdp5.c channels.c rdpdr.c addin.c serial.c printer.c \
 	disk.c parallel.c printercache.c mppc.c pstcache.c lspci.c seamless.c \
 	ssl.c utils.c stream.c dvc.c rdpear.c rdpedisp.c cssp.c ntlmssp.c \
-	spnego.c pkix_asn1_tab.c config.c
+	spnego.c pkix_asn1_tab.c config.c platform.c
 CLI_SOURCES = rdesktop.c
 WIN32_SOURCES = $(CLI_SOURCES) $(CORE_SOURCES)
 WIN32_OBJECTS = $(addprefix $(OBJ_DIR)/,$(WIN32_SOURCES:.c=.o))
 CONFIG_TEST = $(TEST_OBJ_DIR)/config-test.exe
+PLATFORM_TEST = $(TEST_OBJ_DIR)/platform-test.exe
 
 # These official 1.9.1 sources remain in-tree and are intentionally deferred
 # until their Windows platform implementations are rebuilt.
@@ -56,11 +58,15 @@ directories:
 $(OBJ_DIR)/%.o: %.c | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
-tests: preflight directories $(CONFIG_TEST)
+tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST)
 	"$(CONFIG_TEST)"
+	"$(PLATFORM_TEST)"
 
 $(CONFIG_TEST): tests/config_test.c config.c config.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -I. -o $@ tests/config_test.c config.c
+
+$(PLATFORM_TEST): tests/platform_test.c platform.c platform.h | directories
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ tests/platform_test.c platform.c $(WIN32_SYSTEM_LIBS)
 
 package: preflight
 	"$(POWERSHELL)" -NoProfile -ExecutionPolicy Bypass -File package-win32.ps1 -BinDir "$(BIN_DIR)" -PackageDir "$(PACKAGE_DIR)" -PackageName "rdesktop-$(TARGET_NAME).zip"

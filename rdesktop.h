@@ -22,9 +22,11 @@
 #include <string.h>
 #ifdef _WIN32
 #define WINVER 0x0400
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
-#include <winsock.h>
 #include <time.h>
+#include <sys/time.h>
 #define DIR int
 #else
 #include <dirent.h>

@@ -23,7 +23,7 @@ RESIZE_MOCKS=x11_mock.o cache_mock.o xclip_mock.o xkeymap_mock.o seamless_mock.o
 PARSE_MOCKS=ui_mock.o rdpdr_mock.o rdpedisp_mock.o ssl_mock.o ctrl_mock.o secure_mock.o \
 	tcp_mock.o dvc_mock.o rdp_mock.o cache_mock.o cliprdr_mock.o disk_mock.o lspci_mock.o \
 	parallel_mock.o printer_mock.o serial_mock.o xkeymap_mock.o utils_mock.o xwin_mock.o \
-	addin_mock.o pstcache_mock.o rdpear_mock.o
+	addin_mock.o pstcache_mock.o rdpear_mock.o platform.o
 
 MCS_MOCKS=utils_mock.o secure_mock.o iso_mock.o rdp_protocol_mock.o asn1_mock.o
 
@@ -32,7 +32,7 @@ ASN_MOCKS=utils_mock.o rdp_protocol_mock.o asn1_mock.o
 all: test
 
 .PHONY: test
-test: config-model-test $(foreach test, $(TESTS), runtest.$(test))
+test: config-model-test platform-model-test $(foreach test, $(TESTS), runtest.$(test))
 
 
 .PHONY: runtest.%
@@ -65,12 +65,19 @@ config-model-test: config_test.o ../config.c
 	$(CC) $(CFLAGS) -I.. -o $@ config_test.o ../config.c
 	./config-model-test
 
+platform-model-test: platform_test.o platform.o
+	$(CC) $(CFLAGS) -I.. -o $@ platform_test.o platform.o
+	./platform-model-test
+
 asn.o: ../asn.c
 	$(CC) $(CFLAGS) -c -o $@ $^
 
 stream.o: ../stream.c
 	$(CC) $(CFLAGS) -c -o $@ $^
 
+platform.o: ../platform.c
+	$(CC) $(CFLAGS) -I.. -c -o $@ $^
+
 .PHONY: clean
 clean:
-	rm -f $(TESTS) config-model-test *_mock.o *_test.o
+	rm -f $(TESTS) config-model-test platform-model-test *_mock.o *_test.o platform.o

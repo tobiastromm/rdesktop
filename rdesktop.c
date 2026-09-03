@@ -24,15 +24,19 @@
 #include <stdarg.h>		/* va_list va_start va_end */
 #include <unistd.h>		/* read close getuid getgid getpid getppid gethostname */
 #include <fcntl.h>		/* open */
-#include <pwd.h>		/* getpwuid */
-#include <termios.h>		/* tcgetattr tcsetattr */
 #include <sys/stat.h>		/* stat */
 #include <sys/time.h>		/* gettimeofday */
+#ifndef _WIN32
 #include <sys/times.h>		/* times */
+#endif
 #include <ctype.h>		/* toupper */
 #include <limits.h>
 #include <errno.h>
 #include <signal.h>
+#ifdef _WIN32
+#include <direct.h>
+#define mkdir(path, mode) _mkdir(path)
+#endif
 
 #include "rdesktop.h"
 
@@ -51,6 +55,7 @@
 
 #include "ssl.h"
 #include "config.h"
+#include "platform.h"
 
 /* Reconnect timeout based on approximated cookie life-time */
 #define RECONNECT_TIMEOUT (3600+600)
@@ -556,48 +561,13 @@ rdesktop_reset_state(void)
 static RD_BOOL
 read_password(char *password, int size)
 {
-	struct termios tios;
-	RD_BOOL ret = False;
-	int istty = 0;
 	const char *prompt;
-	char *p;
-
 
 	if (g_use_password_as_pin)
-	{
 		prompt = "Smart card PIN: ";
-	}
 	else
-	{
 		prompt = "Password: ";
-	}
-
-	if (tcgetattr(STDIN_FILENO, &tios) == 0)
-	{
-		fputs(prompt, stderr);
-		tios.c_lflag &= ~ECHO;
-		tcsetattr(STDIN_FILENO, TCSANOW, &tios);
-		istty = 1;
-	}
-
-	if (fgets(password, size, stdin) != NULL)
-	{
-		ret = True;
-
-		/* strip final newline */
-		p = strchr(password, '\n');
-		if (p != NULL)
-			*p = 0;
-	}
-
-	if (istty)
-	{
-		tios.c_lflag |= ECHO;
-		tcsetattr(STDIN_FILENO, TCSANOW, &tios);
-		fprintf(stderr, "\n");
-	}
-
-	return ret;
+	return platform_read_secret(prompt, password, (size_t) size);
 }
 
 
@@ -1282,7 +1252,6 @@ main(int argc, char *argv[])
 	char shell[256];
 	char directory[256];
 	RD_BOOL deactivated;
-	struct passwd *pw;
 	uint32 flags, ext_disc_reason = 0;
 	char *p;
 	size_t title_len;
@@ -1317,13 +1286,8 @@ main(int argc, char *argv[])
 
 #endif
 
-	/* Ignore SIGPIPE, since we are using popen() */
-	struct sigaction act;
-	memset(&act, 0, sizeof(act));
-	act.sa_handler = SIG_IGN;
-	sigemptyset(&act.sa_mask);
-	act.sa_flags = 0;
-	sigaction(SIGPIPE, &act, NULL);
+	/* Ignore SIGPIPE on platforms where writing to a closed pipe raises it. */
+	platform_ignore_sigpipe();
 
 	if (argc == 1)
 	{
@@ -1929,20 +1893,21 @@ main(int argc, char *argv[])
 
 	if (!username_option)
 	{
-		pw = getpwuid(getuid());
-		if ((pw == NULL) || (pw->pw_name == NULL))
+		if (!platform_get_local_username(config.username, sizeof(config.username)))
 		{
 			logger(Core, Error,
 			       "could not determine username, use -u <username> to set one");
 			return EX_OSERR;
 		}
-		STRNCPY(config.username, pw->pw_name, sizeof(config.username));
 		config.username_set = True;
 	}
 	rdesktop_config_apply_to_legacy(&config, domain, sizeof(domain));
 
 	if (g_codepage[0] == 0)
 	{
+#ifdef _WIN32
+		STRNCPY(g_codepage, DEFAULT_CODEPAGE, sizeof(g_codepage));
+#else
 		if (setlocale(LC_CTYPE, ""))
 		{
 			STRNCPY(g_codepage, nl_langinfo(CODESET), sizeof(g_codepage));
@@ -1951,11 +1916,12 @@ main(int argc, char *argv[])
 		{
 			STRNCPY(g_codepage, DEFAULT_CODEPAGE, sizeof(g_codepage));
 		}
+#endif
 	}
 
 	if (g_hostname[0] == 0)
 	{
-		if (gethostname(fullhostname, sizeof(fullhostname)) == -1)
+		if (!platform_get_local_hostname(fullhostname, sizeof(fullhostname)))
 		{
 			logger(Core, Error, "could not determine local hostname, use -n\n");
 			return EX_OSERR;
@@ -2175,7 +2141,7 @@ main(int argc, char *argv[])
 					return return_after_credential_cleanup(&config, EX_PROTOCOL);
 				}
 
-				sleep(4);
+				platform_sleep_seconds(4);
 				continue;
 			}
 
@@ -2188,7 +2154,7 @@ main(int argc, char *argv[])
 				return return_after_credential_cleanup(&config, EX_PROTOCOL);
 			}
 
-			sleep(4);
+			platform_sleep_seconds(4);
 			continue;
 		}
 
@@ -2390,6 +2356,13 @@ generate_random_egd(uint8 * buf)
 void
 generate_random(uint8 * random)
 {
+#ifdef _WIN32
+	if (!platform_random_bytes(random, 32))
+	{
+		logger(Core, Error, "Windows system random generator failed");
+		exit(EX_OSERR);
+	}
+#else
 	struct stat st;
 	struct tms tmsbuf;
 	RDSSL_MD5 md5;
@@ -2429,6 +2402,7 @@ generate_random(uint8 * random)
 	rdssl_md5_final(&md5, random);
 	rdssl_md5_update(&md5, random + 16, 16);
 	rdssl_md5_final(&md5, random + 16);
+#endif
 }
 
 /* malloc; exit if out of memory */
@@ -2670,6 +2644,7 @@ str_handle_lines(const char *input, char **rest, str_handle_lines_t linehandler,
 
 /* Execute the program specified by argv. For each line in
    stdout/stderr output, call linehandler. Returns false on failure. */
+#ifndef _WIN32
 RD_BOOL
 subprocess(char *const argv[], str_handle_lines_t linehandler, void *data)
 {
@@ -2719,6 +2694,7 @@ subprocess(char *const argv[], str_handle_lines_t linehandler, void *data)
 
 	return True;
 }
+#endif
 
 
 /* not all clibs got ltoa */
@@ -2761,11 +2737,12 @@ int
 load_licence(unsigned char **data)
 {
 	uint8 ho[20], hi[16];
-	char *home, path[PATH_MAX], hash[41];
+	const char *home;
+	char path[PATH_MAX], hash[41];
 	struct stat st;
 	int fd, length;
 
-	home = getenv("HOME");
+	home = platform_get_home_directory();
 	if (home == NULL)
 		return -1;
 
@@ -2803,11 +2780,12 @@ void
 save_licence(unsigned char *data, int length)
 {
 	uint8 ho[20], hi[16];
-	char *home, path[PATH_MAX], tmppath[PATH_MAX], hash[41];
+	const char *home;
+	char path[PATH_MAX], tmppath[PATH_MAX], hash[41];
 	size_t path_len;
 	int fd;
 
-	home = getenv("HOME");
+	home = platform_get_home_directory();
 	if (home == NULL)
 		return;
 
@@ -2879,10 +2857,10 @@ rd_create_ui()
 /* TODO: Replace with recursive mkdir */
 RD_BOOL rd_certcache_mkdir(void)
 {
-	char *home;
+	const char *home;
 	char certcache_dir[PATH_MAX];
 
-	home = getenv("HOME");
+	home = platform_get_home_directory();
 
 	if (home == NULL)
 		return False;
@@ -2926,10 +2904,10 @@ RD_BOOL rd_certcache_mkdir(void)
 RD_BOOL
 rd_pstcache_mkdir(void)
 {
-	char *home;
+	const char *home;
 	char bmpcache_dir[256];
 
-	home = getenv("HOME");
+	home = platform_get_home_directory();
 
 	if (home == NULL)
 		return False;
@@ -2957,11 +2935,11 @@ rd_pstcache_mkdir(void)
 int
 rd_open_file(char *filename)
 {
-	char *home;
+	const char *home;
 	char fn[256];
 	int fd;
 
-	home = getenv("HOME");
+	home = platform_get_home_directory();
 	if (home == NULL)
 		return -1;
 	sprintf(fn, "%s/.rdesktop/%s", home, filename);
@@ -3004,13 +2982,5 @@ rd_lseek_file(int fd, int offset)
 RD_BOOL
 rd_lock_file(int fd, int start, int len)
 {
-	struct flock lock;
-
-	lock.l_type = F_WRLCK;
-	lock.l_whence = SEEK_SET;
-	lock.l_start = start;
-	lock.l_len = len;
-	if (fcntl(fd, F_SETLK, &lock) == -1)
-		return False;
-	return True;
+	return platform_lock_file(fd, start, len);
 }

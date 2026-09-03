@@ -44,8 +44,17 @@
 #ifdef _WIN32
 #define socklen_t int
 #define TCP_CLOSE(_sck) closesocket(_sck)
-#define TCP_STRERROR "tcp error"
+#define TCP_STRERROR tcp_error_string()
 #define TCP_BLOCKS (WSAGetLastError() == WSAEWOULDBLOCK)
+
+static const char *
+tcp_error_string(void)
+{
+	static char message[64];
+
+	snprintf(message, sizeof(message), "Winsock error %d", WSAGetLastError());
+	return message;
+}
 #else
 #define TCP_CLOSE(_sck) close(_sck)
 #define TCP_STRERROR strerror(errno)
@@ -187,7 +196,7 @@ tcp_send(STREAM s)
 		}
 		else
 		{
-			sent = send(g_sock, data, length, 0);
+			sent = send(g_sock, (const char *) data, length, 0);
 			if (sent <= 0)
 			{
 				if (sent == -1 && TCP_BLOCKS)
@@ -276,7 +285,7 @@ tcp_recv(STREAM s, uint32 length)
 		}
 		else
 		{
-			rcvd = recv(g_sock, data, length, 0);
+			rcvd = recv(g_sock, (char *) data, length, 0);
 			if (rcvd < 0)
 			{
 				if (rcvd == -1 && TCP_BLOCKS)

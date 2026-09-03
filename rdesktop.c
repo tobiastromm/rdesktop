@@ -738,7 +738,7 @@ parse_rdp_file(const char *filename, RDESKTOP_CONFIG *config, char *shell,
 			}
 			else if (!password_option && rdp_key_equals(key, "password"))
 			{
-				STRNCPY(g_password, value, sizeof(g_password));
+				rdesktop_config_set_password(config, value, False);
 			}
 		}
 		else if (type == 'i')
@@ -1014,7 +1014,7 @@ parse_rdp_uri(const char *uri, RDESKTOP_CONFIG *config, char *shell,
 			}
 			else if (!password_option && rdp_key_equals(key, "password"))
 			{
-				STRNCPY(g_password, value, sizeof(g_password));
+				rdesktop_config_set_password(config, value, False);
 			}
 		}
 		else if (type == 'i')
@@ -1266,6 +1266,14 @@ setup_user_requested_session_size()
 
 
 /* Client program */
+static int
+return_after_credential_cleanup(RDESKTOP_CONFIG *config, int status)
+{
+	rdesktop_config_clear_credentials(config);
+	rdesktop_config_clear_legacy_credentials();
+	return status;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -1275,7 +1283,7 @@ main(int argc, char *argv[])
 	char domain[256];
 	char shell[256];
 	char directory[256];
-	RD_BOOL prompt_password, deactivated;
+	RD_BOOL deactivated;
 	struct passwd *pw;
 	uint32 flags, ext_disc_reason = 0;
 	char *p;
@@ -1337,7 +1345,6 @@ main(int argc, char *argv[])
 	flags = RDP_INFO_MOUSE | RDP_INFO_DISABLECTRLALTDEL
 		| RDP_INFO_UNICODE | RDP_INFO_MAXIMIZESHELL | RDP_INFO_ENABLEWINDOWSKEY;
 
-	prompt_password = False;
 	g_seamless_spawn_cmd[0] = g_tls_version[0] = domain[0] = g_password[0] = shell[0] = directory[0] = 0;
 	g_embed_wnd = 0;
 
@@ -1488,11 +1495,11 @@ main(int argc, char *argv[])
 			case 'p':
 				if ((optarg[0] == '-') && (optarg[1] == 0))
 				{
-					prompt_password = True;
+					rdesktop_config_request_password_prompt(&config);
 					break;
 				}
 
-				STRNCPY(g_password, optarg, sizeof(g_password));
+				rdesktop_config_set_password(&config, optarg, False);
 				password_option = True;
 				flags |= RDP_INFO_AUTOLOGON;
 
@@ -1525,7 +1532,7 @@ main(int argc, char *argv[])
 				g_fullscreen = False;
 				if (rdesktop_config_parse_geometry(&config, optarg) != 0)
 				{
-					return EX_USAGE;
+					return return_after_credential_cleanup(&config, EX_USAGE);
 				}
 				break;
 
@@ -1821,14 +1828,14 @@ main(int argc, char *argv[])
 			case '?':
 			default:
 				usage(argv[0]);
-				return EX_USAGE;
+				return return_after_credential_cleanup(&config, EX_USAGE);
 		}
 	}
 
 	if (argc - optind != 1)
 	{
 		usage(argv[0]);
-		return EX_USAGE;
+		return return_after_credential_cleanup(&config, EX_USAGE);
 	}
 	if (g_local_cursor)
 	{
@@ -1844,7 +1851,7 @@ main(int argc, char *argv[])
 				   sizeof(shell), directory, sizeof(directory), username_option,
 				   password_option, domain_option, shell_option, directory_option,
 				   keymap_option, geometry_option, fullscreen_option, depth_option))
-			return EX_USAGE;
+			return return_after_credential_cleanup(&config, EX_USAGE);
 	}
 	else if (filename_has_rdp_suffix(config.server))
 	{
@@ -1852,16 +1859,16 @@ main(int argc, char *argv[])
 				    sizeof(shell), directory, sizeof(directory), username_option,
 				    password_option, domain_option, shell_option, directory_option,
 				    keymap_option, geometry_option, fullscreen_option, depth_option))
-			return EX_USAGE;
+			return return_after_credential_cleanup(&config, EX_USAGE);
 	}
 	if (!parse_server_and_port(&config) || !rdesktop_config_validate(&config))
 	{
 		logger(Core, Error, "Invalid server endpoint or shared session configuration");
-		return EX_USAGE;
+		return return_after_credential_cleanup(&config, EX_USAGE);
 	}
 	rdesktop_config_apply_to_legacy(&config, domain, sizeof(domain));
 	STRNCPY(server, config.server, sizeof(server));
-	if (g_password[0])
+	if (config.password[0])
 		flags |= RDP_INFO_AUTOLOGON;
 
 	if (g_shadow_session && g_console_session)
@@ -1983,18 +1990,22 @@ main(int argc, char *argv[])
 	if (locale)
 		xfree(locale);
 
-	if (prompt_password)
+	if (config.password_prompt_requested)
 	{
-		if (read_password(g_password, sizeof(g_password)))
+		if (read_password(config.password, sizeof(config.password)))
 		{
+			config.password_present = True;
+			config.password_from_prompt = True;
 			flags |= RDP_INFO_AUTOLOGON;
 		}
 		else
 		{
 			logger(Core, Error, "Failed to read password or pin from stdin");
-			return EX_OSERR;
+			return return_after_credential_cleanup(&config, EX_OSERR);
 		}
 	}
+	rdesktop_config_apply_credentials(&config);
+	rdesktop_config_clear_credentials(&config);
 
 	if (g_title[0] == 0)
 	{
@@ -2011,13 +2022,13 @@ main(int argc, char *argv[])
 	if (g_restricted_admin && g_remote_guard)
 	{
 		logger(Core, Error, "Restricted Admin mode and Remote Credential Guard are mutually exclusive");
-		return EX_USAGE;
+		return return_after_credential_cleanup(&config, EX_USAGE);
 	}
 
 	if (g_remote_guard && g_use_password_as_pin)
 	{
 		logger(Core, Error, "Remote Credential Guard cannot be used with smartcard PIN authentication");
-		return EX_USAGE;
+		return return_after_credential_cleanup(&config, EX_USAGE);
 	}
 
 	if (g_remote_guard && (g_remote_guard_helper == NULL || g_remote_guard_helper[0] == 0))
@@ -2027,7 +2038,7 @@ main(int argc, char *argv[])
 	if (g_restricted_admin && g_use_password_as_pin)
 	{
 		logger(Core, Error, "Restricted Admin mode cannot be used with smartcard PIN authentication");
-		return EX_USAGE;
+		return return_after_credential_cleanup(&config, EX_USAGE);
 	}
 
 	if (g_use_password_as_pin && g_sc_reader_name == NULL)
@@ -2040,6 +2051,7 @@ main(int argc, char *argv[])
 		if (ctrl_init(server, domain, g_username) < 0)
 		{
 			logger(Core, Error, "Failed to initialize ctrl mode");
+			rdesktop_config_clear_legacy_credentials();
 			exit(1);
 		}
 
@@ -2049,15 +2061,19 @@ main(int argc, char *argv[])
 			       "rdesktop in slave mode sending command to master process");
 
 			if (g_seamless_spawn_cmd[0])
-				return ctrl_send_command("seamless.spawn", g_seamless_spawn_cmd);
+				return return_after_credential_cleanup(&config,
+					ctrl_send_command("seamless.spawn", g_seamless_spawn_cmd));
 
 			logger(Core, Notice, "No command specified to be spawned in seamless mode");
-			return EX_USAGE;
+			return return_after_credential_cleanup(&config, EX_USAGE);
 		}
 	}
 
 	if (!ui_init())
+	{
+		rdesktop_config_clear_legacy_credentials();
 		return EX_OSERR;
+	}
 
 #ifdef WITH_RDPSND
 	if (!rdpsnd_init(rdpsnd_optarg))
@@ -2070,6 +2086,7 @@ main(int argc, char *argv[])
 	if (!addin_init())
 	{
 		addin_deinit();
+		rdesktop_config_clear_legacy_credentials();
 		return EX_OSERR;
 	}
 
@@ -2077,7 +2094,10 @@ main(int argc, char *argv[])
 
 	dvc_init();
 	if (!rdpear_init())
+	{
+		rdesktop_config_clear_legacy_credentials();
 		return EX_PROTOCOL;
+	}
 #ifdef WITH_RDPSND
 	rdpsnd_input_init();
 #endif
@@ -2136,26 +2156,28 @@ main(int argc, char *argv[])
 			if (g_use_gui_prompts)
 			{
 				if (g_gui_prompt_cancelled)
-					return reopen_launcher_from_gui(NULL, NULL);
+					return return_after_credential_cleanup(&config,
+						reopen_launcher_from_gui(NULL, NULL));
 
 				snprintf(message, sizeof(message),
 				         "Unable to establish the Remote Desktop connection.\n\n"
 				         "Check the computer name, user name, password and selected options, "
 				         "then try again.");
-				return reopen_launcher_from_gui("rdesktop connection failed", message);
+				return return_after_credential_cleanup(&config,
+					reopen_launcher_from_gui("rdesktop connection failed", message));
 			}
 
 			if (g_reconnect_loop == False)
 			{
 				if (!g_reconnect_on_network_error || g_reconnect_started_ts == 0)
-					return EX_PROTOCOL;
+					return return_after_credential_cleanup(&config, EX_PROTOCOL);
 
 				if (time(NULL) - g_reconnect_started_ts > RECONNECT_TIMEOUT)
 				{
 					logger(Core, Notice,
 					       "Tried to reconnect for %d minutes, giving up.",
 					       RECONNECT_TIMEOUT / 60);
-					return EX_PROTOCOL;
+					return return_after_credential_cleanup(&config, EX_PROTOCOL);
 				}
 
 				sleep(4);
@@ -2168,7 +2190,7 @@ main(int argc, char *argv[])
 				logger(Core, Notice,
 				       "Tried to reconnect for %d minutes, giving up.",
 				       RECONNECT_TIMEOUT / 60);
-				return EX_PROTOCOL;
+				return return_after_credential_cleanup(&config, EX_PROTOCOL);
 			}
 
 			sleep(4);
@@ -2295,7 +2317,10 @@ main(int argc, char *argv[])
 	addin_deinit();
 
 	if (g_user_quit)
+	{
+		rdesktop_config_clear_legacy_credentials();
 		return EXRD_WINDOW_CLOSED;
+	}
 
 	{
 		int retval;
@@ -2314,9 +2339,11 @@ main(int argc, char *argv[])
 			         "server, credentials or connection options.",
 			         g_last_disconnect_reason_text != NULL ?
 			         g_last_disconnect_reason_text : "Unknown reason");
-			return reopen_launcher_from_gui("rdesktop connection error", message);
+			return return_after_credential_cleanup(&config,
+				reopen_launcher_from_gui("rdesktop connection error", message));
 		}
 
+		rdesktop_config_clear_legacy_credentials();
 		return retval;
 	}
 

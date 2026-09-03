@@ -15,6 +15,7 @@ int g_pos = 0;
 int g_dpi = 0;
 int g_server_depth = -1;
 char g_keymapname[PATH_MAX] = "";
+char g_password[64] = "";
 
 void
 logger(log_subject_t subject, log_level_t level, char *format, ...)
@@ -42,6 +43,9 @@ main(void)
 	RDESKTOP_CONFIG value;
 	char domain[256];
 	rdesktop_config_init_defaults(&value);
+	if (value.password_present || value.password_from_prompt ||
+	    value.password_prompt_requested || value.password[0] != '\0')
+		return 37;
 	if (value.rdp_version != RDP_V5 || value.hostname[0] != '\0' ||
 	    !rdesktop_config_validate(&value))
 		return 1;
@@ -126,6 +130,37 @@ main(void)
 	    g_requested_session_width != value.width ||
 	    g_requested_session_height != value.height)
 		return 28;
+
+	rdesktop_config_set_password(&value, "test-secret", False);
+	if (!value.password_present || value.password_from_prompt)
+		return 29;
+	rdesktop_config_apply_credentials(&value);
+	if (g_password[0] == '\0')
+		return 30;
+	rdesktop_config_clear_credentials(&value);
+	if (value.password_present || value.password_from_prompt ||
+	    value.password_prompt_requested)
+		return 31;
+	{
+		size_t index;
+		for (index = 0; index < sizeof(value.password); index++)
+		{
+			if (value.password[index] != '\0')
+				return 32;
+		}
+	}
+	rdesktop_config_clear_legacy_credentials();
+	if (g_password[0] != '\0')
+		return 36;
+	rdesktop_config_set_password(&value, "", False);
+	if (!value.password_present || value.password[0] != '\0')
+		return 33;
+	rdesktop_config_request_password_prompt(&value);
+	if (!value.password_prompt_requested)
+		return 34;
+	rdesktop_config_set_password(&value, "", True);
+	if (!value.password_present || !value.password_from_prompt)
+		return 35;
 
 	rdesktop_config_init_defaults(&value);
 	STRNCPY(value.server, "server.example.com", sizeof(value.server));

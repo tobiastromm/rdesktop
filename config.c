@@ -15,6 +15,7 @@ extern int g_pos;
 extern int g_dpi;
 extern int g_server_depth;
 extern char g_keymapname[PATH_MAX];
+extern char g_password[64];
 
 static RD_BOOL
 rdesktop_config_parse_port(const char *value, uint16 *port)
@@ -197,6 +198,51 @@ rdesktop_config_parse_server_endpoint(RDESKTOP_CONFIG *config)
 		*separator = '\0';
 	}
 	return config->server[0] != '\0';
+}
+
+void
+rdesktop_config_set_password(RDESKTOP_CONFIG *config, const char *password,
+			     RD_BOOL from_prompt)
+{
+	STRNCPY(config->password, password, sizeof(config->password));
+	config->password_present = True;
+	config->password_from_prompt = from_prompt;
+}
+
+void
+rdesktop_config_request_password_prompt(RDESKTOP_CONFIG *config)
+{
+	config->password_prompt_requested = True;
+}
+
+void
+rdesktop_config_apply_credentials(const RDESKTOP_CONFIG *config)
+{
+	if (config->password_present)
+		STRNCPY(g_password, config->password, sizeof(g_password));
+}
+
+void
+rdesktop_config_clear_credentials(RDESKTOP_CONFIG *config)
+{
+	volatile char *cursor = config->password;
+	size_t remaining = sizeof(config->password);
+
+	while (remaining-- != 0)
+		*cursor++ = '\0';
+	config->password_present = False;
+	config->password_from_prompt = False;
+	config->password_prompt_requested = False;
+}
+
+void
+rdesktop_config_clear_legacy_credentials(void)
+{
+	volatile char *cursor = g_password;
+	size_t remaining = sizeof(g_password);
+
+	while (remaining-- != 0)
+		*cursor++ = '\0';
 }
 
 void

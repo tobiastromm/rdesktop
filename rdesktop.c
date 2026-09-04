@@ -2251,7 +2251,6 @@ configuration_parsed:
 		g_reconnect_started_ts = 0;
 
 		logger(Core, Verbose, "Connection successful");
-		rdesktop_frontend_mark_activated();
 
 		rd_create_ui();
 		tcp_run_ui(True);

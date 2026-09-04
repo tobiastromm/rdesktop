@@ -31,6 +31,9 @@
 #endif
 #include "rdesktop.h"
 #include "ssl.h"
+#ifdef _WIN32
+#include "frontend.h"
+#endif
 
 #ifdef _WIN32
 extern int g_win32_bitmap_bpp;
@@ -1491,6 +1494,9 @@ process_demand_active(STREAM s)
 
 	rdp_recv(&type);	/* RDP_PDU_UNKNOWN 0x28 (Fonts?) */
 	reset_order_state();
+#ifdef _WIN32
+	rdesktop_frontend_mark_activated();
+#endif
 }
 
 /* Process a colour pointer PDU */

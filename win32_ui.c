@@ -6,6 +6,7 @@
 #include "rop_semantics.h"
 #include "win32_keymap.h"
 #include "win32_toggle_state.h"
+#include "win32_clipboard.h"
 
 extern RD_BOOL g_user_quit;
 extern RD_BOOL g_exit_mainloop;
@@ -542,6 +543,10 @@ static unsigned int win32_pump_messages(void)
 
 static LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 {
+    LRESULT clipboard_result;
+    if (win32_clipboard_handle_message(hwnd, message, wparam, lparam,
+                                       &clipboard_result))
+        return clipboard_result;
     switch (message) {
     case WM_ENTERSIZEMOVE:
         win32_in_sizemove = True;
@@ -700,6 +705,7 @@ RD_BOOL ui_init(void)
     WSADATA winsock_data;
     if (WSAStartup(MAKEWORD(2, 2), &winsock_data) != 0)
         return False;
+    xclip_init();
     win32_keyboard_hook = SetWindowsHookExA(WH_KEYBOARD_LL,
                                              win32_low_level_keyboard,
                                              GetModuleHandleA(NULL), 0);
@@ -762,6 +768,7 @@ void ui_deinit(void)
         UnhookWindowsHookEx(win32_keyboard_hook);
         win32_keyboard_hook = NULL;
     }
+    xclip_deinit();
     ui_destroy_window();
     if (win32_colourmap) {
         free(win32_colourmap);
@@ -813,6 +820,7 @@ RD_BOOL ui_create_window(uint32 width, uint32 height)
                                    NULL, NULL, GetModuleHandleA(NULL), NULL);
     if (!win32_window)
         return False;
+    win32_clipboard_attach(win32_window);
     win32_dc = CreateCompatibleDC(NULL);
     if (!win32_dc)
         return False;
@@ -876,6 +884,7 @@ void ui_resize_window(uint32 width, uint32 height)
 
 void ui_destroy_window(void)
 {
+    win32_clipboard_detach();
     win32_release_frame();
     if (win32_dc) {
         DeleteDC(win32_dc);
@@ -1954,15 +1963,6 @@ void ui_seamless_settitle(unsigned long id, const char *title, unsigned long fla
 void ui_seamless_setstate(unsigned long id, unsigned int state, unsigned long flags) { UNUSED(id); UNUSED(state); UNUSED(flags); }
 void ui_seamless_syncbegin(unsigned long flags) { UNUSED(flags); }
 void ui_seamless_ack(unsigned int serial) { UNUSED(serial); }
-
-void ui_clip_format_announce(uint8 *data, uint32 length) { UNUSED(data); UNUSED(length); }
-void ui_clip_handle_data(uint8 *data, uint32 length) { UNUSED(data); UNUSED(length); }
-void ui_clip_request_failed(void) { }
-void ui_clip_request_data(uint32 format) { UNUSED(format); }
-void ui_clip_sync(void) { }
-void ui_clip_set_mode(const char *optarg) { UNUSED(optarg); }
-void xclip_init(void) { }
-void xclip_deinit(void) { }
 
 RD_BOOL xkeymap_from_locale(const char *locale) { UNUSED(locale); return True; }
 FILE *xkeymap_open(const char *filename) { UNUSED(filename); return NULL; }

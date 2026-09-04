@@ -42,13 +42,6 @@ xwin_parse_keyboard_ungrab_combo(const char *combo)
 	return False;
 }
 
-void
-cliprdr_set_mode(const char *optarg)
-{
-	UNUSED(optarg);
-	logger(Core, Warning, "Clipboard redirection is not yet supported on this Win32 build");
-}
-
 int
 ctrl_init(const char *user, const char *domain, const char *host)
 {

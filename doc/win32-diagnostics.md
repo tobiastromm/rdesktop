@@ -6,3 +6,6 @@ no formatting or per-pixel work.
 
 `RDESKTOP_WIN32_SCALE_FILTER` selects the presentation scaling filter. Accepted
 values are `auto`, `halftone` and `nearest` (the fallback for other values).
+
+`RDESKTOP_WIN32_CLIPBOARD_DEBUG=1` enables lightweight CLIPRDR adapter logging.
+The flag is read once and does not change protocol sequencing.

@@ -33,9 +33,9 @@ WIN32_SYSTEM_LIBS = -lgnutls -lhogweed -lnettle -ltasn1 -lgmp -liconv \
 CORE_SOURCES = tcp.c asn.c iso.c mcs.c secure.c licence.c rdp.c orders.c \
 	bitmap.c cache.c rdp5.c channels.c rdpdr.c addin.c rdpdr_devices_win32.c \
 	mppc.c pstcache.c lspci.c seamless.c \
-	ssl.c utils.c stream.c dvc.c rdpear_win32.c rdpedisp.c cssp.c ntlmssp.c \
+	ssl.c utils.c stream.c dvc.c rdpear_win32.c rdpedisp.c cssp.c ntlmssp.c cliprdr.c \
 	spnego.c config.c platform.c
-CLI_SOURCES = rdesktop.c win32_ui.c win32_session_support.c
+CLI_SOURCES = rdesktop.c win32_ui.c win32_session_support.c win32_clipboard.c
 WIN32_SOURCES = $(CLI_SOURCES) $(CORE_SOURCES)
 WIN32_OBJECTS = $(addprefix $(OBJ_DIR)/,$(WIN32_SOURCES:.c=.o))
 CONFIG_TEST = $(TEST_OBJ_DIR)/config-test.exe
@@ -46,11 +46,12 @@ RDPEAR_TEST = $(TEST_OBJ_DIR)/rdpear-test.exe
 ROP_TEST = $(TEST_OBJ_DIR)/rop-test.exe
 KEYMAP_TEST = $(TEST_OBJ_DIR)/keymap-test.exe
 TOGGLE_TEST = $(TEST_OBJ_DIR)/toggle-test.exe
+CLIPBOARD_TEST = $(TEST_OBJ_DIR)/clipboard-test.exe
 
 # These official 1.9.1 sources remain in-tree and are intentionally deferred
 # until their Windows platform implementations are rebuilt.
 DEFERRED_PLATFORM_SOURCES = xwin.c xgui.c xkeymap.c ewmhints.c xclip.c \
-	ctrl.c cliprdr.c scard.c rdpsnd.c \
+	ctrl.c scard.c rdpsnd.c \
 	rdpsnd_alsa.c rdpsnd_dsp.c rdpsnd_input.c rdpsnd_libao.c \
 	rdpsnd_oss.c rdpsnd_pulse.c rdpsnd_sgi.c rdpsnd_sun.c
 
@@ -77,7 +78,7 @@ directories:
 $(OBJ_DIR)/%.o: %.c | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
-tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDPDR_TEST) $(RDPEAR_TEST) $(ROP_TEST) $(KEYMAP_TEST) $(TOGGLE_TEST)
+tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDPDR_TEST) $(RDPEAR_TEST) $(ROP_TEST) $(KEYMAP_TEST) $(TOGGLE_TEST) $(CLIPBOARD_TEST)
 	"$(CONFIG_TEST)"
 	"$(PLATFORM_TEST)"
 	"$(ADDIN_TEST)"
@@ -86,6 +87,7 @@ tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDP
 	"$(ROP_TEST)"
 	"$(KEYMAP_TEST)"
 	"$(TOGGLE_TEST)"
+	"$(CLIPBOARD_TEST)"
 
 $(CONFIG_TEST): tests/config_test.c config.c config.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -I. -o $@ tests/config_test.c config.c
@@ -110,6 +112,9 @@ $(KEYMAP_TEST): test_win32_keymap.c win32_keymap.h | directories
 
 $(TOGGLE_TEST): test_win32_toggle_state.c win32_toggle_state.h constants.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ test_win32_toggle_state.c
+
+$(CLIPBOARD_TEST): test_win32_clipboard.c win32_clipboard_logic.h | directories
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ test_win32_clipboard.c
 
 package: preflight directories $(BIN_DIR)/rdesktop.exe $(BIN_RUNTIME_DLLS)
 	"$(POWERSHELL)" -NoProfile -ExecutionPolicy Bypass -File package-win32.ps1 -SourceRoot "." -BinDir "$(BIN_DIR)" -PackageDir "$(PACKAGE_DIR)" -PackageName "rdesktop-$(TARGET_NAME).zip"

@@ -35,6 +35,13 @@ uint32 vc_chunk_size = CHANNEL_CHUNK_LENGTH;
 VCHANNEL g_channels[MAX_CHANNELS];
 unsigned int g_num_channels;
 
+void
+channel_reset_registry(void)
+{
+	memset(g_channels, 0, sizeof(g_channels));
+	g_num_channels = 0;
+}
+
 /* FIXME: We should use the information in TAG_SRV_CHANNELS to map RDP5
    channels to MCS channels.
 
@@ -50,7 +57,7 @@ channel_register(char *name, uint32 flags, void (*callback) (STREAM))
 {
 	VCHANNEL *channel;
 
-	if (g_rdp_version < RDP_V5)
+	if (g_rdp_version < RDP_V5 && strcmp(name, "cliprdr") != 0)
 		return NULL;
 
 	if (g_num_channels >= MAX_CHANNELS)

@@ -869,6 +869,30 @@ sec_process_srv_info(STREAM s)
 	}
 }
 
+/* TS_UD_SC_NET returns IDs in the same order as TS_UD_CS_NET. */
+static RD_BOOL
+sec_process_srv_channels(STREAM s, uint16 length)
+{
+	uint16 global_channel, channel_count, channel_id;
+	unsigned int i;
+
+	if (length < 8 || !s_check_rem(s, 4))
+		return False;
+	in_uint16_le(s, global_channel);
+	in_uint16_le(s, channel_count);
+	if (channel_count > g_num_channels || !s_check_rem(s, channel_count * 2))
+		return False;
+	for (i = 0; i < channel_count; i++)
+	{
+		in_uint16_le(s, channel_id);
+		g_channels[i].mcs_id = channel_id;
+		logger(Protocol, Debug, "channel %s mapped to %u",
+		       g_channels[i].name, channel_id);
+	}
+	UNUSED(global_channel);
+	return True;
+}
+
 
 /* Process connect response data blob */
 void
@@ -908,9 +932,9 @@ sec_process_mcs_data(STREAM s)
 
 			case SEC_TAG_SRV_CHANNELS:
 				logger(Protocol, Debug, "%s(), SEC_TAG_SRV_CHANNELS", __func__);
-				/* FIXME: We should parse this information and
-				   use it to map RDP5 channels to MCS 
-				   channels */
+				if (!sec_process_srv_channels(s, length))
+					logger(Protocol, Warning,
+					       "%s(), invalid SEC_TAG_SRV_CHANNELS", __func__);
 				break;
 
 			default:

@@ -5,6 +5,7 @@
 #include <windows.h>
 #endif
 void win32_i18n_load(const char *locale);
+RD_BOOL win32_i18n_load_from_directory(const char *locale, const char *directory);
 const char *win32_i18n_get(const char *key);
 #ifdef _WIN32
 const WCHAR *win32_i18n_get_w(const char *key);
@@ -12,4 +13,3 @@ const WCHAR *win32_i18n_get_w(const char *key);
 const char *win32_i18n_locale(void);
 #endif
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-

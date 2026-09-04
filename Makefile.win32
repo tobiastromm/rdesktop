@@ -53,6 +53,7 @@ TOGGLE_TEST = $(TEST_OBJ_DIR)/toggle-test.exe
 CLIPBOARD_TEST = $(TEST_OBJ_DIR)/clipboard-test.exe
 WINMM_TEST = $(TEST_OBJ_DIR)/winmm-test.exe
 PROFILE_TEST = $(TEST_OBJ_DIR)/profile-test.exe
+I18N_TEST = $(TEST_OBJ_DIR)/i18n-test.exe
 
 # These official 1.9.1 sources remain in-tree and are intentionally deferred
 # until their Windows platform implementations are rebuilt.
@@ -87,7 +88,7 @@ directories:
 $(OBJ_DIR)/%.o: %.c | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
-tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDPDR_TEST) $(RDPEAR_TEST) $(ROP_TEST) $(KEYMAP_TEST) $(TOGGLE_TEST) $(CLIPBOARD_TEST) $(WINMM_TEST) $(PROFILE_TEST)
+tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDPDR_TEST) $(RDPEAR_TEST) $(ROP_TEST) $(KEYMAP_TEST) $(TOGGLE_TEST) $(CLIPBOARD_TEST) $(WINMM_TEST) $(PROFILE_TEST) $(I18N_TEST)
 	"$(CONFIG_TEST)"
 	"$(PLATFORM_TEST)"
 	"$(ADDIN_TEST)"
@@ -99,6 +100,7 @@ tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDP
 	"$(CLIPBOARD_TEST)"
 	"$(WINMM_TEST)"
 	"$(PROFILE_TEST)"
+	"$(I18N_TEST)"
 
 $(CONFIG_TEST): tests/config_test.c config.c config.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -I. -o $@ tests/config_test.c config.c
@@ -132,6 +134,9 @@ $(WINMM_TEST): test_rdpsnd_winmm.c rdpsnd_winmm_logic.h | directories
 
 $(PROFILE_TEST): tests/win32_profile_test.c win32_profile.c win32_profile.h config.c config.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -I. -o $@ tests/win32_profile_test.c win32_profile.c config.c
+
+$(I18N_TEST): tests/win32_i18n_test.c win32_i18n.c win32_i18n.h | directories
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ tests/win32_i18n_test.c win32_i18n.c
 
 package: preflight directories $(BIN_DIR)/rdesktop.exe $(BIN_DIR)/rdesktop-gui.exe $(BIN_RUNTIME_DLLS)
 	"$(POWERSHELL)" -NoProfile -ExecutionPolicy Bypass -File package-win32.ps1 -SourceRoot "." -BinDir "$(BIN_DIR)" -PackageDir "$(PACKAGE_DIR)" -PackageName "rdesktop-$(TARGET_NAME).zip"

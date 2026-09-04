@@ -4,6 +4,8 @@
 #include <string.h>
 #include "rdesktop.h"
 #include "rop_semantics.h"
+#include "win32_keymap.h"
+#include "win32_toggle_state.h"
 
 extern RD_BOOL g_user_quit;
 extern RD_BOOL g_exit_mainloop;
@@ -12,6 +14,7 @@ extern uint32 g_requested_session_height;
 extern char g_title[];
 extern RD_BOOL g_fullscreen;
 extern RD_BOOL g_sendmotion;
+extern RD_BOOL g_numlock_sync;
 extern int g_server_depth;
 int g_win32_bitmap_bpp = 4;
 int g_win32_bitmap_depth = 32;
@@ -23,6 +26,8 @@ static void win32_queue_input(uint16 type, uint16 flags, uint16 param1, uint16 p
 static void win32_client_to_remote(POINT *point);
 static void win32_remote_to_client(POINT *point);
 static RD_BOOL win32_point_in_view(const POINT *point);
+static void win32_send_key(UINT message, WPARAM key, LPARAM key_data, RD_BOOL pressed);
+static void win32_release_remote_modifiers(void);
 
 static RD_BOOL win32_input_debug_enabled = False;
 static RD_BOOL win32_input_debug_initialized = False;
@@ -46,6 +51,9 @@ static uint32 win32_last_move_time = 0;
 static uint32 *win32_colourmap = NULL;
 static uint16 win32_colourmap_count = 0;
 static uint16 win32_colourmap_created_count = 0;
+static RD_BOOL win32_pressed_keys[512];
+static HHOOK win32_keyboard_hook;
+static RD_BOOL win32_keyboard_sync_ready = False;
 
 enum {
     WIN32_SCALE_FILTER_NEAREST = 0,
@@ -124,6 +132,26 @@ static void win32_log_key_event(UINT message, WPARAM key, LPARAM key_data, uint1
             (unsigned int)((key_data >> 31) & 1));
 }
 
+static uint16 win32_get_toggle_state(void)
+{
+    return (uint16)win32_toggle_state_to_rdp_flags(
+        (GetKeyState(VK_NUMLOCK) & 1) != 0,
+        (GetKeyState(VK_CAPITAL) & 1) != 0,
+        (GetKeyState(VK_SCROLL) & 1) != 0);
+}
+
+static void win32_synchronize_toggle_state(const char *reason)
+{
+    uint16 flags;
+    if (!g_numlock_sync || !win32_keyboard_sync_ready)
+        return;
+    flags = win32_get_toggle_state();
+    if (win32_input_debug())
+        fprintf(stderr, "WIN32 KEY_SYNC flags=0x%04x reason=%s\n",
+                (unsigned int)flags, reason);
+    win32_queue_input(RDP_INPUT_SYNCHRONIZE, 0, flags, 0);
+}
+
 static void win32_log_mouse_event(UINT message, uint16 input_type, uint16 flags, int x, int y, SHORT wheel_delta)
 {
     if (!win32_input_debug())
@@ -142,17 +170,63 @@ static void win32_log_mouse_event(UINT message, uint16 input_type, uint16 flags,
 
 static void win32_send_key(UINT message, WPARAM key, LPARAM key_data, RD_BOOL pressed)
 {
-    UINT scan = (UINT)((key_data >> 16) & 0xff);
+    WIN32_KEY_TRANSLATION translated = win32_translate_key(
+        (UINT)key, (unsigned long long)(size_t)key_data, pressed,
+        MapVirtualKeyA((UINT)key, MAPVK_VK_TO_VSC));
+    UINT scan = translated.scan;
     uint16 flags = pressed ? RDP_KEYPRESS : RDP_KEYRELEASE;
-    if (scan == 0)
-        scan = MapVirtualKeyA((UINT)key, MAPVK_VK_TO_VSC);
-    if ((key_data & (1L << 24)) != 0 ||
-        key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN ||
-        key == VK_HOME || key == VK_END || key == VK_PRIOR || key == VK_NEXT ||
-        key == VK_INSERT || key == VK_DELETE || key == VK_DIVIDE)
+    unsigned int state_index = scan | (translated.extended ? 0x100 : 0);
+
+    if (g_numlock_sync &&
+        (key == VK_NUMLOCK || key == VK_CAPITAL || key == VK_SCROLL)) {
+        if (!pressed)
+            win32_synchronize_toggle_state("toggle");
+        return;
+    }
+    if (translated.extended)
         flags |= KBD_FLAG_EXT;
+    if (state_index < 512)
+        win32_pressed_keys[state_index] = pressed;
     win32_log_key_event(message, key, key_data, flags, (uint16)scan);
     win32_queue_input(RDP_INPUT_SCANCODE, flags, (uint16)scan, 0);
+}
+
+static void win32_release_remote_modifiers(void)
+{
+    static const unsigned int modifiers[] = {
+        0x02a, 0x036, 0x01d, 0x11d, 0x038, 0x138, 0x15b, 0x15c
+    };
+    unsigned int i;
+    for (i = 0; i < sizeof(modifiers) / sizeof(modifiers[0]); i++) {
+        unsigned int state = modifiers[i];
+        if (win32_pressed_keys[state]) {
+            uint16 flags = RDP_KEYRELEASE;
+            if (state & 0x100)
+                flags |= KBD_FLAG_EXT;
+            win32_queue_input(RDP_INPUT_SCANCODE, flags,
+                              (uint16)(state & 0xff), 0);
+            win32_pressed_keys[state] = False;
+        }
+    }
+}
+
+static LRESULT CALLBACK win32_low_level_keyboard(int code, WPARAM wparam, LPARAM lparam)
+{
+    if (code == HC_ACTION && win32_window && GetForegroundWindow() == win32_window) {
+        KBDLLHOOKSTRUCT *event = (KBDLLHOOKSTRUCT *)lparam;
+        if (event->vkCode == VK_LWIN || event->vkCode == VK_RWIN) {
+            RD_BOOL pressed = (event->flags & LLKHF_UP) == 0;
+            LPARAM key_data = (LPARAM)((event->scanCode & 0xff) << 16);
+            if (event->flags & LLKHF_EXTENDED)
+                key_data |= (LPARAM)(1UL << 24);
+            if (!pressed)
+                key_data |= (LPARAM)(1UL << 31);
+            win32_send_key(pressed ? WM_KEYDOWN : WM_KEYUP,
+                           event->vkCode, key_data, pressed);
+            return 1;
+        }
+    }
+    return CallNextHookEx(win32_keyboard_hook, code, wparam, lparam);
 }
 
 static void win32_send_mouse(UINT message, WPARAM state, LPARAM position)
@@ -486,6 +560,16 @@ static LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wparam
         g_exit_mainloop = True;
         DestroyWindow(hwnd);
         return 0;
+    case WM_KILLFOCUS:
+        win32_release_remote_modifiers();
+        return 0;
+    case WM_SETFOCUS:
+        win32_synchronize_toggle_state("focus");
+        return 0;
+    case WM_ACTIVATE:
+        if (LOWORD(wparam) == WA_INACTIVE)
+            win32_release_remote_modifiers();
+        return DefWindowProcA(hwnd, message, wparam, lparam);
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
@@ -616,6 +700,9 @@ RD_BOOL ui_init(void)
     WSADATA winsock_data;
     if (WSAStartup(MAKEWORD(2, 2), &winsock_data) != 0)
         return False;
+    win32_keyboard_hook = SetWindowsHookExA(WH_KEYBOARD_LL,
+                                             win32_low_level_keyboard,
+                                             GetModuleHandleA(NULL), 0);
     memset(&win32_class, 0, sizeof(win32_class));
     win32_class.lpfnWndProc = win32_window_proc;
     win32_class.hInstance = instance;
@@ -670,6 +757,11 @@ void ui_get_workarea_size(uint32 *width, uint32 *height)
 
 void ui_deinit(void)
 {
+    win32_release_remote_modifiers();
+    if (win32_keyboard_hook) {
+        UnhookWindowsHookEx(win32_keyboard_hook);
+        win32_keyboard_hook = NULL;
+    }
     ui_destroy_window();
     if (win32_colourmap) {
         free(win32_colourmap);
@@ -1883,8 +1975,14 @@ char *get_ksname(uint32 keysym) { UNUSED(keysym); return NULL; }
 void save_remote_modifiers(uint8 scancode) { UNUSED(scancode); }
 void restore_remote_modifiers(uint32 ev_time, uint8 scancode) { UNUSED(ev_time); UNUSED(scancode); }
 void ensure_remote_modifiers(uint32 ev_time, key_translation tr) { UNUSED(ev_time); UNUSED(tr); }
-unsigned int read_keyboard_state(void) { return 0; }
-uint16 ui_get_numlock_state(unsigned int state) { UNUSED(state); return 0; }
+unsigned int read_keyboard_state(void) { return win32_get_toggle_state(); }
+uint16 ui_get_numlock_state(unsigned int state)
+{
+    uint16 flags = (uint16)state &
+        (KBD_FLAG_NUMLOCK | KBD_FLAG_CAPITAL | KBD_FLAG_SCROLL);
+    win32_keyboard_sync_ready = True;
+    return flags;
+}
 void reset_modifier_keys(void) { }
 RD_BOOL get_key_state(unsigned int state, uint32 keysym) { UNUSED(state); UNUSED(keysym); return False; }
 

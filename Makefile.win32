@@ -44,6 +44,8 @@ ADDIN_TEST = $(TEST_OBJ_DIR)/addin-test.exe
 RDPDR_TEST = $(TEST_OBJ_DIR)/rdpdr-test.exe
 RDPEAR_TEST = $(TEST_OBJ_DIR)/rdpear-test.exe
 ROP_TEST = $(TEST_OBJ_DIR)/rop-test.exe
+KEYMAP_TEST = $(TEST_OBJ_DIR)/keymap-test.exe
+TOGGLE_TEST = $(TEST_OBJ_DIR)/toggle-test.exe
 
 # These official 1.9.1 sources remain in-tree and are intentionally deferred
 # until their Windows platform implementations are rebuilt.
@@ -75,13 +77,15 @@ directories:
 $(OBJ_DIR)/%.o: %.c | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
-tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDPDR_TEST) $(RDPEAR_TEST) $(ROP_TEST)
+tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDPDR_TEST) $(RDPEAR_TEST) $(ROP_TEST) $(KEYMAP_TEST) $(TOGGLE_TEST)
 	"$(CONFIG_TEST)"
 	"$(PLATFORM_TEST)"
 	"$(ADDIN_TEST)"
 	"$(RDPDR_TEST)"
 	"$(RDPEAR_TEST)"
 	"$(ROP_TEST)"
+	"$(KEYMAP_TEST)"
+	"$(TOGGLE_TEST)"
 
 $(CONFIG_TEST): tests/config_test.c config.c config.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -I. -o $@ tests/config_test.c config.c
@@ -100,6 +104,12 @@ $(RDPEAR_TEST): tests/rdpear_win32_test.c rdpear_win32.c | directories
 
 $(ROP_TEST): test_memblt_rop.c rop_semantics.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ test_memblt_rop.c
+
+$(KEYMAP_TEST): test_win32_keymap.c win32_keymap.h | directories
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ test_win32_keymap.c
+
+$(TOGGLE_TEST): test_win32_toggle_state.c win32_toggle_state.h constants.h | directories
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ test_win32_toggle_state.c
 
 package: preflight directories $(BIN_DIR)/rdesktop.exe $(BIN_RUNTIME_DLLS)
 	"$(POWERSHELL)" -NoProfile -ExecutionPolicy Bypass -File package-win32.ps1 -SourceRoot "." -BinDir "$(BIN_DIR)" -PackageDir "$(PACKAGE_DIR)" -PackageName "rdesktop-$(TARGET_NAME).zip"

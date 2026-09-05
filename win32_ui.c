@@ -1,5 +1,6 @@
 #ifdef _WIN32
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include "rdesktop.h"
@@ -10,6 +11,7 @@
 #include "config.h"
 #include "win32_i18n.h"
 #include "win32_window_geometry.h"
+#include "win32_diagnostics.h"
 
 extern RD_BOOL g_user_quit;
 extern RD_BOOL g_exit_mainloop;
@@ -112,7 +114,20 @@ static RD_BOOL win32_input_debug(void)
         win32_input_debug_enabled = (value && value[0] && strcmp(value, "0") != 0) ? True : False;
         win32_input_debug_initialized = True;
     }
-    return win32_input_debug_enabled;
+    return win32_input_debug_enabled || win32_diagnostics_input_enabled();
+}
+
+static void win32_input_diagnostic(const char *format, ...)
+{
+    char message[512];
+    va_list arguments;
+    va_start(arguments, format);
+    vsnprintf(message, sizeof(message), format, arguments);
+    va_end(arguments);
+    message[sizeof(message) - 1] = '\0';
+    fputs(message, stderr);
+    fputc('\n', stderr);
+    win32_diagnostics_emit(message);
 }
 
 static int win32_get_scale_filter_mode(void)
@@ -136,8 +151,8 @@ static void win32_log_key_event(UINT message, WPARAM key, LPARAM key_data, uint1
 {
     if (!win32_input_debug())
         return;
-    fprintf(stderr,
-            "WIN32 KEY msg=0x%04x vk=0x%02x scan=0x%02x flags=0x%04x ext=%u prev=%u trans=%u\n",
+    win32_input_diagnostic(
+            "WIN32 KEY msg=0x%04x vk=0x%02x scan=0x%02x flags=0x%04x ext=%u prev=%u trans=%u",
             (unsigned int)message,
             (unsigned int)key,
             (unsigned int)scan,
@@ -162,7 +177,7 @@ static void win32_synchronize_toggle_state(const char *reason)
         return;
     flags = win32_get_toggle_state();
     if (win32_input_debug())
-        fprintf(stderr, "WIN32 KEY_SYNC flags=0x%04x reason=%s\n",
+        win32_input_diagnostic("WIN32 KEY_SYNC flags=0x%04x reason=%s",
                 (unsigned int)flags, reason);
     win32_queue_input(RDP_INPUT_SYNCHRONIZE, 0, flags, 0);
 }
@@ -173,8 +188,8 @@ static void win32_log_mouse_event(UINT message, uint16 input_type, uint16 flags,
         return;
     if (message == WM_MOUSEMOVE)
         return;
-    fprintf(stderr,
-            "WIN32 MOUSE msg=0x%04x type=0x%04x flags=0x%04x x=%d y=%d wheel=%d\n",
+    win32_input_diagnostic(
+            "WIN32 MOUSE msg=0x%04x type=0x%04x flags=0x%04x x=%d y=%d wheel=%d",
             (unsigned int)message,
             (unsigned int)input_type,
             (unsigned int)flags,

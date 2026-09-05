@@ -2,6 +2,7 @@
 #include "win32_gui.h"
 #include "win32_gui_prefs.h"
 #include "win32_i18n.h"
+#include "win32_diagnostics.h"
 #include "frontend.h"
 #include <commctrl.h>
 
@@ -42,7 +43,6 @@
 #define ID_BITMAP_CACHE 122
 #define ID_LANGUAGE 123
 #define ID_DIAGNOSTICS 124
-#define ID_DIAG_DETAIL 125
 #define ID_DIAG_LOG 126
 #define ID_DIAG_CLEAR 127
 #define ID_DIAG_COPY 128
@@ -84,9 +84,9 @@ enum { GUI_EXIT_USER_CLOSE, GUI_EXIT_CONNECT, GUI_EXIT_LANGUAGE_RELOAD };
 
 #define TR(k) win32_i18n_get(k)
 #define TRW(k) win32_i18n_get_w(k)
-static RD_BOOL gui_diagnostics_enabled;
-static char gui_diagnostic_log[8192];
-void win32_gui_log_event(const char *message){size_t have,need;if(!gui_diagnostics_enabled||!message)return;have=strlen(gui_diagnostic_log);need=strlen(message);if(have+need+3>=sizeof(gui_diagnostic_log)){size_t drop=(have+need+3)-sizeof(gui_diagnostic_log)+1024;if(drop>have)drop=have;memmove(gui_diagnostic_log,gui_diagnostic_log+drop,have-drop+1);have-=drop;}memcpy(gui_diagnostic_log+have,message,need);gui_diagnostic_log[have+need]='\r';gui_diagnostic_log[have+need+1]='\n';gui_diagnostic_log[have+need+2]=0;}
+static WIN32_DIAGNOSTIC_LOG gui_diagnostic_log;
+static void gui_diagnostic_sink(void *context,const char *message){win32_diagnostic_log_append((WIN32_DIAGNOSTIC_LOG*)context,message);}
+void win32_gui_log_event(const char *message){win32_diagnostics_set_sink(gui_diagnostic_sink,&gui_diagnostic_log);if(win32_diagnostics_input_enabled())win32_diagnostics_emit(message);}
 
 static void
 gui_perf_report_runtime(WIN32_GUI_STATE *state)
@@ -131,6 +131,7 @@ static void gui_utf8_to_wide(const char *text,WCHAR *wide,int count){if(!MultiBy
 static void gui_wide_to_utf8(const WCHAR *wide,char *text,size_t size){if(!WideCharToMultiByte(CP_UTF8,0,wide?wide:L"",-1,text,(int)size,NULL,NULL))text[0]=0;text[size-1]=0;}
 static void gui_set_text(HWND window,const char *text){WCHAR wide[512];gui_utf8_to_wide(text,wide,512);SetWindowTextW(window,wide);}
 static void gui_set_item_text(HWND window,int id,const char *text){gui_set_text(GetDlgItem(window,id),text);}
+static void gui_refresh_diagnostic_log(HWND window){static WCHAR wide[WIN32_DIAGNOSTIC_LOG_CAPACITY];if(!MultiByteToWideChar(CP_UTF8,0,win32_diagnostic_log_text(&gui_diagnostic_log),-1,wide,WIN32_DIAGNOSTIC_LOG_CAPACITY))wide[0]=0;SetDlgItemTextW(window,ID_DIAG_LOG,wide);SendDlgItemMessageW(window,ID_DIAG_LOG,EM_SETSEL,(WPARAM)-1,(LPARAM)-1);SendDlgItemMessageW(window,ID_DIAG_LOG,EM_SCROLLCARET,0,0);}
 
 static HWND
 gui_control(HWND parent, const WCHAR *class_name, const char *text, DWORD style,
@@ -203,7 +204,7 @@ static const int page_ids[6][24] = {
 	{110,111,112,113,210,213,0},
 	{120,121,122,220,0},
 	{102,109,123,129,130,131,132,133,134,135,136,137,240,241,242,243,244,245,246,247,248,0},
-	{124,125,126,127,128,224,225,0}
+	{124,126,127,128,225,0}
 };
 
 static void gui_show_page(HWND w,int page){int p,i;for(p=0;p<6;p++)for(i=0;i<24&&page_ids[p][i];i++)ShowWindow(GetDlgItem(w,page_ids[p][i]),p==page?SW_SHOW:SW_HIDE);}
@@ -220,10 +221,10 @@ static void gui_relabel_combo(HWND window,int id,const char **keys,int count)
 static void gui_apply_language(HWND window,WIN32_GUI_STATE *state)
 {
 	static const struct {int id;const char*key;} text[]={
-		{300,"app.subtitle"},{301,"label.server"},{302,"label.username"},{204,"label.password"},{205,"label.domain"},{206,"label.resolution"},{216,"label.window_mode"},{208,"label.depth"},{210,"label.keyboard"},{213,"label.audio"},{220,"label.experience"},{240,"label.port"},{241,"label.protocol"},{242,"label.language"},{243,"label.tls"},{244,"label.hostname"},{245,"label.codepage"},{246,"label.shell"},{247,"label.directory"},{248,"label.title"},{225,"label.diagnostics_detail"},
-		{ID_CONNECT,"button.connect"},{ID_CANCEL,"button.cancel"},{ID_NUMLOCK,"check.numlock"},{ID_CLIPBOARD,"check.clipboard"},{ID_SHOW_BAR,"check.connection_bar"},{ID_DIAGNOSTICS,"check.diagnostics"},{ID_SEND_MOTION,"check.motion"},{ID_BITMAP_CACHE,"check.bitmap_cache"},{ID_COMPRESSION,"check.compression"},{ID_ADMIN,"check.admin"},{ID_RETRY,"check.retry"},{ID_DIAG_CLEAR,"button.clear"},{ID_DIAG_COPY,"button.copy"}};
+		{300,"app.subtitle"},{301,"label.server"},{302,"label.username"},{204,"label.password"},{205,"label.domain"},{206,"label.resolution"},{216,"label.window_mode"},{208,"label.depth"},{210,"label.keyboard"},{213,"label.audio"},{220,"label.experience"},{240,"label.port"},{241,"label.protocol"},{242,"label.language"},{243,"label.tls"},{244,"label.hostname"},{245,"label.codepage"},{246,"label.shell"},{247,"label.directory"},{248,"label.title"},{225,"label.diagnostic_log"},
+		{ID_CONNECT,"button.connect"},{ID_CANCEL,"button.cancel"},{ID_NUMLOCK,"check.numlock"},{ID_CLIPBOARD,"check.clipboard"},{ID_SHOW_BAR,"check.connection_bar"},{ID_DIAGNOSTICS,"check.input_diagnostics"},{ID_SEND_MOTION,"check.motion"},{ID_BITMAP_CACHE,"check.bitmap_cache"},{ID_COMPRESSION,"check.compression"},{ID_ADMIN,"check.admin"},{ID_RETRY,"check.retry"},{ID_DIAG_CLEAR,"button.clear"},{ID_DIAG_COPY,"button.copy"}};
 	static const char *tabs[]={"tab.general","tab.display","tab.local","tab.experience","tab.advanced","tab.diagnostics"};
-	static const char *modes[]={"mode.client","mode.fill","mode.fullscreen"},*audio[]={"audio.off","audio.local"},*experience[]={"experience.modem","experience.broadband","experience.lan"},*keyboards[]={"keyboard.pt-br","keyboard.en-us","keyboard.en-us-intl","keyboard.en-gb","keyboard.pt"},*details[]={"diagnostic.basic","diagnostic.detailed"},*locales[]={"locale.en-US","locale.en-GB","locale.pt-BR","locale.pt-PT"};
+	static const char *modes[]={"mode.client","mode.fill","mode.fullscreen"},*audio[]={"audio.off","audio.local"},*experience[]={"experience.modem","experience.broadband","experience.lan"},*keyboards[]={"keyboard.pt-br","keyboard.en-us","keyboard.en-us-intl","keyboard.en-gb","keyboard.pt"},*locales[]={"locale.en-US","locale.en-GB","locale.pt-BR","locale.pt-PT"};
 	HWND tab=GetDlgItem(window,ID_TABS);TCITEMW item;int i,page;
 	page=state->expanded?TabCtrl_GetCurSel(tab):-1;
 	if(state->expanded&&(page<0||page>=6))page=0;
@@ -232,7 +233,7 @@ static void gui_apply_language(HWND window,WIN32_GUI_STATE *state)
 	for(i=0;i<(int)(sizeof(text)/sizeof(text[0]));i++)SetWindowTextW(GetDlgItem(window,text[i].id),TRW(text[i].key));
 	SetWindowTextW(GetDlgItem(window,ID_SHOW_OPTIONS),TRW(state->expanded?"button.hide_options":"button.show_options"));
 	memset(&item,0,sizeof(item));item.mask=TCIF_TEXT;for(i=0;i<6;i++){item.pszText=(WCHAR*)TRW(tabs[i]);SendMessageW(tab,TCM_SETITEMW,i,(LPARAM)&item);}
-	gui_relabel_combo(window,ID_WINDOW_MODE,modes,3);gui_relabel_combo(window,ID_AUDIO,audio,2);gui_relabel_combo(window,ID_EXPERIENCE,experience,3);gui_relabel_combo(window,ID_KEYBOARD,keyboards,5);gui_relabel_combo(window,ID_DIAG_DETAIL,details,2);gui_relabel_combo(window,ID_LANGUAGE,locales,4);
+	gui_relabel_combo(window,ID_WINDOW_MODE,modes,3);gui_relabel_combo(window,ID_AUDIO,audio,2);gui_relabel_combo(window,ID_EXPERIENCE,experience,3);gui_relabel_combo(window,ID_KEYBOARD,keyboards,5);gui_relabel_combo(window,ID_LANGUAGE,locales,4);
 	if(page>=0)TabCtrl_SetCurSel(tab,page);
 	state->applying_language=False;
 	gui_show_page(window,page);
@@ -369,8 +370,8 @@ gui_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 		return 0;
 	}
 	if(message==WM_COMMAND&&LOWORD(wparam)==ID_SHOW_OPTIONS){gui_set_expanded(window,state,!state->expanded);return 0;}
-	if(message==WM_COMMAND&&LOWORD(wparam)==ID_DIAGNOSTICS){gui_diagnostics_enabled=IsDlgButtonChecked(window,ID_DIAGNOSTICS)==BST_CHECKED;return 0;}
-	if(message==WM_COMMAND&&LOWORD(wparam)==ID_DIAG_CLEAR){gui_diagnostic_log[0]=0;SetDlgItemTextW(window,ID_DIAG_LOG,L"");return 0;}
+	if(message==WM_COMMAND&&LOWORD(wparam)==ID_DIAGNOSTICS){win32_diagnostics_set_input_enabled(IsDlgButtonChecked(window,ID_DIAGNOSTICS)==BST_CHECKED);return 0;}
+	if(message==WM_COMMAND&&LOWORD(wparam)==ID_DIAG_CLEAR){win32_diagnostic_log_clear(&gui_diagnostic_log);SetDlgItemTextW(window,ID_DIAG_LOG,L"");return 0;}
 	if(message==WM_COMMAND&&LOWORD(wparam)==ID_DIAG_COPY){SendDlgItemMessage(window,ID_DIAG_LOG,EM_SETSEL,0,-1);SendDlgItemMessage(window,ID_DIAG_LOG,WM_COPY,0,0);return 0;}
 	if(message==WM_COMMAND&&LOWORD(wparam)==ID_LANGUAGE&&HIWORD(wparam)==CBN_SELCHANGE){static const char*locales[]={"en-US","en-GB","pt-BR","pt-PT"};int n;if(state->applying_language)return 0;n=(int)SendDlgItemMessage(window,ID_LANGUAGE,CB_GETCURSEL,0,0);if(n<0||n>3)n=0;STRNCPY(state->locale,locales[n],sizeof(state->locale));win32_i18n_load(state->locale);win32_gui_prefs_save_global(state->locale,state->expanded);gui_apply_language(window,state);return 0;}
 	if(message==WM_COMMAND&&LOWORD(wparam)==ID_SERVER&&HIWORD(wparam)==CBN_SELCHANGE)
@@ -595,15 +596,15 @@ win32_config_dialog_once(RDESKTOP_CONFIG *config, char *error, size_t error_size
 	LAB(240,"label.port",45,205);gui_control(window,L"EDIT","",WS_BORDER|WS_TABSTOP|ES_NUMBER,200,201,100,24,ID_PORT);LAB(241,"label.protocol",45,237);combo=gui_control(window,L"COMBOBOX","",CBS_DROPDOWNLIST|WS_TABSTOP,200,233,180,80,ID_PROTOCOL);gui_combo_add(combo,"RDP 4");gui_combo_add(combo,"RDP 5");LAB(242,"label.language",45,269);combo=gui_control(window,L"COMBOBOX","",CBS_DROPDOWNLIST|WS_TABSTOP,200,265,250,110,ID_LANGUAGE);gui_combo_add(combo,TR("locale.en-US"));gui_combo_add(combo,TR("locale.en-GB"));gui_combo_add(combo,TR("locale.pt-BR"));gui_combo_add(combo,TR("locale.pt-PT"));
 	gui_control(window,L"BUTTON",TR("check.compression"),BS_AUTOCHECKBOX|WS_TABSTOP,45,305,210,22,ID_COMPRESSION);gui_control(window,L"BUTTON",TR("check.admin"),BS_AUTOCHECKBOX|WS_TABSTOP,270,305,260,22,ID_ADMIN);gui_control(window,L"BUTTON",TR("check.retry"),BS_AUTOCHECKBOX|WS_TABSTOP,45,333,250,22,ID_RETRY);
 	LAB(243,"label.tls",45,369);gui_control(window,L"EDIT","",WS_BORDER|WS_TABSTOP,200,365,90,24,ID_TLS);LAB(244,"label.hostname",310,369);gui_control(window,L"EDIT","",WS_BORDER|WS_TABSTOP,455,365,140,24,ID_HOSTNAME);LAB(245,"label.codepage",45,401);gui_control(window,L"EDIT","",WS_BORDER|WS_TABSTOP,200,397,90,24,ID_CODEPAGE);LAB(246,"label.shell",310,401);gui_control(window,L"EDIT","",WS_BORDER|WS_TABSTOP,455,397,140,24,ID_SHELL);LAB(247,"label.directory",45,433);gui_control(window,L"EDIT","",WS_BORDER|WS_TABSTOP,200,429,200,24,ID_DIRECTORY);LAB(248,"label.title",45,465);gui_control(window,L"EDIT","",WS_BORDER|WS_TABSTOP,200,461,300,24,ID_TITLE);
-	gui_control(window,L"BUTTON",TR("check.diagnostics"),BS_AUTOCHECKBOX|WS_TABSTOP,45,215,300,22,ID_DIAGNOSTICS);LAB(225,"label.diagnostics_detail",45,250);combo=gui_control(window,L"COMBOBOX","",CBS_DROPDOWNLIST|WS_TABSTOP,200,246,180,80,ID_DIAG_DETAIL);gui_combo_add(combo,TR("diagnostic.basic"));gui_combo_add(combo,TR("diagnostic.detailed"));gui_control(window,L"EDIT","",WS_BORDER|ES_MULTILINE|ES_READONLY|WS_VSCROLL,45,285,550,210,ID_DIAG_LOG);gui_control(window,L"BUTTON",TR("button.clear"),BS_PUSHBUTTON,405,505,90,26,ID_DIAG_CLEAR);gui_control(window,L"BUTTON",TR("button.copy"),BS_PUSHBUTTON,505,505,90,26,ID_DIAG_COPY);
+	gui_control(window,L"BUTTON",TR("check.input_diagnostics"),BS_AUTOCHECKBOX|WS_TABSTOP,45,215,300,22,ID_DIAGNOSTICS);LAB(225,"label.diagnostic_log",45,250);gui_control(window,L"EDIT","",WS_BORDER|ES_MULTILINE|ES_READONLY|WS_VSCROLL,45,275,550,220,ID_DIAG_LOG);gui_control(window,L"BUTTON",TR("button.clear"),BS_PUSHBUTTON,405,505,90,26,ID_DIAG_CLEAR);gui_control(window,L"BUTTON",TR("button.copy"),BS_PUSHBUTTON,505,505,90,26,ID_DIAG_COPY);
 	gui_control(window,L"BUTTON",TR("button.connect"),BS_DEFPUSHBUTTON|WS_TABSTOP,455,125,95,30,ID_CONNECT);gui_control(window,L"BUTTON",TR("button.cancel"),BS_PUSHBUTTON|WS_TABSTOP,560,125,95,30,ID_CANCEL);
 #undef LAB
 	CheckDlgButton(window, ID_NUMLOCK, config->numlock_sync ? BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(window, ID_CLIPBOARD, config->clipboard_enabled ? BST_CHECKED : BST_UNCHECKED);
 	gui_apply_config(window,config);
 	SendDlgItemMessage(window,ID_LANGUAGE,CB_SETCURSEL,!_stricmp(state.locale,"en-GB")?1:!_stricmp(state.locale,"pt-BR")?2:!_stricmp(state.locale,"pt-PT")?3:0,0);
-	SendDlgItemMessage(window,ID_DIAG_DETAIL,CB_SETCURSEL,0,0);
-	CheckDlgButton(window,ID_DIAGNOSTICS,gui_diagnostics_enabled?BST_CHECKED:BST_UNCHECKED);gui_set_item_text(window,ID_DIAG_LOG,gui_diagnostic_log);
+	win32_diagnostics_set_sink(gui_diagnostic_sink,&gui_diagnostic_log);
+	CheckDlgButton(window,ID_DIAGNOSTICS,win32_diagnostics_input_enabled()?BST_CHECKED:BST_UNCHECKED);gui_refresh_diagnostic_log(window);
 	SendMessage(window, DM_SETDEFID, ID_CONNECT, 0);
 	SetFocus(GetDlgItem(window, ID_SERVER));
 	gui_combo_caret_end(GetDlgItem(window, ID_SERVER));

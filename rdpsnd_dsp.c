@@ -272,7 +272,7 @@ rdpsnd_dsp_resample(unsigned char *in, unsigned int size,
 
 	src_short_to_float_array((short *) in, infloat, innum);
 
-	bzero(&resample_data, sizeof(resample_data));
+	memset(&resample_data, 0, sizeof(resample_data));
 	resample_data.data_in = infloat;
 	resample_data.data_out = outfloat;
 	resample_data.input_frames = innum / resample_to_channels;
@@ -307,7 +307,7 @@ rdpsnd_dsp_resample(unsigned char *in, unsigned int size,
 	outsize = outnum * samplewidth;
 	out = s_alloc(outsize);
 	out_uint8p(out, data, outsize);
-	bzero(data, outsize);
+	memset(data, 0, outsize);
 
 	for (i = 0; i < outsize / (resample_to_channels * samplewidth); i++)
 	{

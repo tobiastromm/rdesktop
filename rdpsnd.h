@@ -48,6 +48,7 @@ struct audio_driver
 	char *description;
 	int need_byteswap_on_be;
 	int need_resampling;
+	RD_BOOL wave_out_drain_after_close;
 	struct audio_driver *next;
 };
 
@@ -58,3 +59,6 @@ struct audio_driver *libao_register(char *options);
 struct audio_driver *oss_register(char *options);
 struct audio_driver *sgi_register(char *options);
 struct audio_driver *sun_register(char *options);
+#ifdef RDPSND_WINMM
+struct audio_driver *winmm_register(char *options);
+#endif

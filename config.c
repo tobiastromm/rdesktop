@@ -17,6 +17,9 @@ extern int g_server_depth;
 extern char g_keymapname[PATH_MAX];
 extern char g_password[64];
 extern RD_BOOL g_fullscreen;
+#ifdef WITH_RDPSND
+extern RD_BOOL g_rdpsnd;
+#endif
 
 static RD_BOOL
 rdesktop_config_parse_port(const char *value, uint16 *port)
@@ -42,6 +45,21 @@ rdesktop_config_init_defaults(RDESKTOP_CONFIG *config)
 	config->height = 768;
 	config->geometry_type = Fixed;
 	config->colour_depth = -1;
+	config->audio_mode = RDESKTOP_AUDIO_DISABLED;
+}
+
+void
+rdesktop_config_apply_audio_to_legacy(const RDESKTOP_CONFIG *config,
+				      char **driver_options)
+{
+#ifdef WITH_RDPSND
+	g_rdpsnd = config->audio_mode == RDESKTOP_AUDIO_LOCAL;
+	*driver_options = config->audio_driver_options[0] ?
+		(char *) config->audio_driver_options : NULL;
+#else
+	UNUSED(config);
+	UNUSED(driver_options);
+#endif
 }
 
 RD_BOOL

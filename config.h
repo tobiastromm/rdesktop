@@ -4,6 +4,13 @@
 
 #include "rdesktop.h"
 
+typedef enum
+{
+	RDESKTOP_AUDIO_DISABLED,
+	RDESKTOP_AUDIO_LOCAL
+}
+RDESKTOP_AUDIO_MODE;
+
 typedef struct rdesktop_config
 {
 	/* Add fields only when their configuration source is migrated. */
@@ -29,6 +36,8 @@ typedef struct rdesktop_config
 	RD_BOOL password_from_prompt;
 	RD_BOOL password_prompt_requested;
 	RD_BOOL fullscreen;
+	RDESKTOP_AUDIO_MODE audio_mode;
+	char audio_driver_options[256];
 }
 RDESKTOP_CONFIG;
 
@@ -44,5 +53,7 @@ void rdesktop_config_clear_credentials(RDESKTOP_CONFIG *config);
 void rdesktop_config_clear_legacy_credentials(void);
 void rdesktop_config_apply_to_legacy(const RDESKTOP_CONFIG *config, char *domain,
 				     size_t domain_size);
+void rdesktop_config_apply_audio_to_legacy(const RDESKTOP_CONFIG *config,
+					  char **driver_options);
 
 #endif

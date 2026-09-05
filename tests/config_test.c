@@ -17,6 +17,7 @@ int g_server_depth = -1;
 char g_keymapname[PATH_MAX] = "";
 char g_password[64] = "";
 RD_BOOL g_fullscreen = False;
+RD_BOOL g_rdpsnd = False;
 
 void
 logger(log_subject_t subject, log_level_t level, char *format, ...)
@@ -175,6 +176,27 @@ main(void)
 	rdesktop_config_apply_to_legacy(&value, domain, sizeof(domain));
 	if (g_fullscreen || g_window_size_type != Fixed)
 		return 40;
+
+	rdesktop_config_init_defaults(&value);
+	if (value.audio_mode != RDESKTOP_AUDIO_DISABLED ||
+	    value.audio_driver_options[0] != '\0')
+		return 41;
+	value.audio_mode = RDESKTOP_AUDIO_LOCAL;
+	STRNCPY(value.audio_driver_options, "winmm", sizeof(value.audio_driver_options));
+	{
+		char *audio_options = NULL;
+		rdesktop_config_apply_audio_to_legacy(&value, &audio_options);
+		if (!g_rdpsnd || audio_options == NULL || strcmp(audio_options, "winmm") != 0)
+			return 42;
+	}
+	value.audio_mode = RDESKTOP_AUDIO_DISABLED;
+	value.audio_driver_options[0] = '\0';
+	{
+		char *audio_options = (char *) "stale";
+		rdesktop_config_apply_audio_to_legacy(&value, &audio_options);
+		if (g_rdpsnd || audio_options != NULL)
+			return 43;
+	}
 
 	rdesktop_config_init_defaults(&value);
 	STRNCPY(value.server, "server.example.com", sizeof(value.server));

@@ -1642,9 +1642,11 @@ main(int argc, char *argv[])
 							if (str_startswith(optarg, "local"))
 #ifdef WITH_RDPSND
 							{
-								rdpsnd_optarg =
-									next_arg(optarg, ':');
-								g_rdpsnd = True;
+								char *driver_options = next_arg(optarg, ':');
+								config.audio_mode = RDESKTOP_AUDIO_LOCAL;
+								STRNCPY(config.audio_driver_options,
+									driver_options ? driver_options : "",
+									sizeof(config.audio_driver_options));
 							}
 
 #else
@@ -1654,7 +1656,10 @@ main(int argc, char *argv[])
 
 							if (str_startswith(optarg, "off"))
 #ifdef WITH_RDPSND
-								g_rdpsnd = False;
+							{
+								config.audio_mode = RDESKTOP_AUDIO_DISABLED;
+								config.audio_driver_options[0] = '\0';
+							}
 #else
 								logger(Core, Warning,
 								       "Not compiled with sound support");
@@ -1666,7 +1671,10 @@ main(int argc, char *argv[])
 					else
 					{
 #ifdef WITH_RDPSND
-						g_rdpsnd = True;
+					{
+						config.audio_mode = RDESKTOP_AUDIO_LOCAL;
+						config.audio_driver_options[0] = '\0';
+					}
 #else
 						logger(Core, Warning,
 						       "Not compiled with sound support");
@@ -2051,6 +2059,7 @@ main(int argc, char *argv[])
 	}
 
 #ifdef WITH_RDPSND
+	rdesktop_config_apply_audio_to_legacy(&config, &rdpsnd_optarg);
 	if (!rdpsnd_init(rdpsnd_optarg))
 		logger(Core, Warning, "Initializing sound-support failed");
 #endif

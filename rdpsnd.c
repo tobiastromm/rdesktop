@@ -485,6 +485,11 @@ rdpsnd_register_drivers(char *options)
 	/* The order of registrations define the probe-order
 	   when opening the device for the first time */
 	reg = &drivers;
+#if defined(RDPSND_WINMM)
+	*reg = winmm_register(options);
+	assert(*reg);
+	reg = &((*reg)->next);
+#endif
 #if defined(RDPSND_PULSE)
 	*reg = pulse_register(options);
 	assert(*reg);
@@ -613,7 +618,8 @@ rdpsnd_add_fds(int *n, fd_set * rfds, fd_set * wfds, struct timeval *tv)
 {
 	long next_pending;
 
-	if (device_open)
+	if (device_open ||
+	    (current_driver && current_driver->wave_out_drain_after_close))
 		current_driver->add_fds(n, rfds, wfds, tv);
 
 	next_pending = rdpsnd_queue_next_completion();
@@ -635,7 +641,8 @@ rdpsnd_check_fds(fd_set * rfds, fd_set * wfds)
 {
 	rdpsnd_queue_complete_pending();
 
-	if (device_open)
+	if (device_open ||
+	    (current_driver && current_driver->wave_out_drain_after_close))
 		current_driver->check_fds(rfds, wfds);
 }
 

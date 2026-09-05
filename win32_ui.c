@@ -904,7 +904,9 @@ void xwin_toggle_fullscreen(void) { }
 void ui_select(int rdp_socket)
 {
     fd_set readfds;
+    fd_set writefds;
     struct timeval timeout = { 0, 50000 };
+    int max_fd;
     int rc;
     do {
         win32_pump_messages();
@@ -913,8 +915,16 @@ void ui_select(int rdp_socket)
         timeout.tv_sec = 0;
         timeout.tv_usec = rdp_heartbeat_select_timeout(50) * 1000;
         FD_ZERO(&readfds);
+        FD_ZERO(&writefds);
         FD_SET((SOCKET)rdp_socket, &readfds);
-        rc = select(0, &readfds, NULL, NULL, &timeout);
+        max_fd = rdp_socket;
+#ifdef WITH_RDPSND
+        rdpsnd_add_fds(&max_fd, &readfds, &writefds, &timeout);
+#endif
+        rc = select(0, &readfds, &writefds, NULL, &timeout);
+#ifdef WITH_RDPSND
+        rdpsnd_check_fds(&readfds, &writefds);
+#endif
         rdp_heartbeat_check_timeout();
     } while (rc == 0 && !g_exit_mainloop);
 }

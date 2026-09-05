@@ -56,6 +56,7 @@ PROFILE_TEST = $(TEST_OBJ_DIR)/profile-test.exe
 I18N_TEST = $(TEST_OBJ_DIR)/i18n-test.exe
 WINDOW_GEOMETRY_TEST = $(TEST_OBJ_DIR)/window-geometry-test.exe
 DIAGNOSTICS_TEST = $(TEST_OBJ_DIR)/diagnostics-test.exe
+CACHE_RESET_TEST = $(TEST_OBJ_DIR)/cache-reset-test.exe
 
 # These official 1.9.1 sources remain in-tree and are intentionally deferred
 # until their Windows platform implementations are rebuilt.
@@ -90,7 +91,7 @@ directories:
 $(OBJ_DIR)/%.o: %.c | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
-tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDPDR_TEST) $(RDPEAR_TEST) $(ROP_TEST) $(KEYMAP_TEST) $(TOGGLE_TEST) $(CLIPBOARD_TEST) $(WINMM_TEST) $(PROFILE_TEST) $(I18N_TEST) $(WINDOW_GEOMETRY_TEST) $(DIAGNOSTICS_TEST)
+tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDPDR_TEST) $(RDPEAR_TEST) $(ROP_TEST) $(KEYMAP_TEST) $(TOGGLE_TEST) $(CLIPBOARD_TEST) $(WINMM_TEST) $(PROFILE_TEST) $(I18N_TEST) $(WINDOW_GEOMETRY_TEST) $(DIAGNOSTICS_TEST) $(CACHE_RESET_TEST)
 	"$(CONFIG_TEST)"
 	"$(PLATFORM_TEST)"
 	"$(ADDIN_TEST)"
@@ -105,6 +106,7 @@ tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDP
 	"$(I18N_TEST)"
 	"$(WINDOW_GEOMETRY_TEST)"
 	"$(DIAGNOSTICS_TEST)"
+	"$(CACHE_RESET_TEST)"
 
 $(CONFIG_TEST): tests/config_test.c config.c config.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -I. -o $@ tests/config_test.c config.c
@@ -147,6 +149,9 @@ $(WINDOW_GEOMETRY_TEST): tests/win32_window_geometry_test.c win32_window_geometr
 
 $(DIAGNOSTICS_TEST): tests/win32_diagnostics_test.c win32_diagnostics.c win32_diagnostics.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ tests/win32_diagnostics_test.c win32_diagnostics.c
+
+$(CACHE_RESET_TEST): tests/cache_reset_test.c cache.c | directories
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ tests/cache_reset_test.c cache.c
 
 package: preflight directories $(BIN_DIR)/rdesktop.exe $(BIN_DIR)/rdesktop-gui.exe $(BIN_RUNTIME_DLLS)
 	"$(POWERSHELL)" -NoProfile -ExecutionPolicy Bypass -File package-win32.ps1 -SourceRoot "." -BinDir "$(BIN_DIR)" -PackageDir "$(PACKAGE_DIR)" -PackageName "rdesktop-$(TARGET_NAME).zip"

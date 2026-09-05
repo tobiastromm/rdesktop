@@ -42,6 +42,7 @@ RD_HBITMAP cache_get_bitmap_for_update(uint8 id, uint16 idx, int width, int heig
 void cache_put_bitmap(uint8 id, uint16 idx, RD_HBITMAP bitmap);
 void cache_put_bitmap_with_dimensions(uint8 id, uint16 idx, RD_HBITMAP bitmap, int width, int height);
 void cache_save_state(void);
+void cache_reset_state(void);
 FONTGLYPH *cache_get_font(uint8 font, uint16 character);
 void cache_put_font(uint8 font, uint16 character, uint16 offset, uint16 baseline, uint16 width,
 		    uint16 height, RD_HGLYPH pixmap);

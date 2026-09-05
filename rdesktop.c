@@ -1245,6 +1245,21 @@ return_after_credential_cleanup(RDESKTOP_CONFIG *config, int status)
 	return status;
 }
 
+static int
+return_after_session_cleanup(RDESKTOP_CONFIG *config, int status, RD_BOOL save_cache)
+{
+	if (save_cache)
+		cache_save_state();
+	cache_reset_state();
+#ifdef WITH_RDPSND
+	rdpsnd_reset_state();
+#endif
+	tcp_disconnect();
+	ui_deinit();
+	addin_deinit();
+	return return_after_credential_cleanup(config, status);
+}
+
 static RD_BOOL g_frontend_session_activated;
 
 void
@@ -2125,9 +2140,7 @@ configuration_parsed:
 
 	if (!addin_init())
 	{
-		addin_deinit();
-		rdesktop_config_clear_legacy_credentials();
-		return EX_OSERR;
+		return return_after_session_cleanup(&config, EX_OSERR, False);
 	}
 
 	rdpdr_init();
@@ -2135,8 +2148,7 @@ configuration_parsed:
 	dvc_init();
 	if (!rdpear_init())
 	{
-		rdesktop_config_clear_legacy_credentials();
-		return EX_PROTOCOL;
+		return return_after_session_cleanup(&config, EX_PROTOCOL, False);
 	}
 #ifdef WITH_RDPSND
 	rdpsnd_input_init();
@@ -2210,14 +2222,14 @@ configuration_parsed:
 			if (g_reconnect_loop == False)
 			{
 				if (!g_reconnect_on_network_error || g_reconnect_started_ts == 0)
-					return return_after_credential_cleanup(&config, EX_PROTOCOL);
+					return return_after_session_cleanup(&config, EX_PROTOCOL, False);
 
 				if (time(NULL) - g_reconnect_started_ts > RECONNECT_TIMEOUT)
 				{
 					logger(Core, Notice,
 					       "Tried to reconnect for %d minutes, giving up.",
 					       RECONNECT_TIMEOUT / 60);
-					return return_after_credential_cleanup(&config, EX_PROTOCOL);
+					return return_after_session_cleanup(&config, EX_PROTOCOL, False);
 				}
 
 				platform_sleep_seconds(4);
@@ -2230,7 +2242,7 @@ configuration_parsed:
 				logger(Core, Notice,
 				       "Tried to reconnect for %d minutes, giving up.",
 				       RECONNECT_TIMEOUT / 60);
-				return return_after_credential_cleanup(&config, EX_PROTOCOL);
+				return return_after_session_cleanup(&config, EX_PROTOCOL, False);
 			}
 
 			platform_sleep_seconds(4);
@@ -2353,6 +2365,10 @@ configuration_parsed:
 	ui_destroy_window();
 
 	cache_save_state();
+	cache_reset_state();
+#ifdef WITH_RDPSND
+	rdpsnd_reset_state();
+#endif
 	ui_deinit();
 	addin_deinit();
 

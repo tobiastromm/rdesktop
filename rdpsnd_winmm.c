@@ -39,6 +39,11 @@ static void hard_close(void)
 	if (buffer.data) { waveOutUnprepareHeader(output,&buffer.hdr,sizeof(buffer.hdr)); free(buffer.data); memset(&buffer,0,sizeof(buffer)); }
 	waveOutClose(output); output=NULL; queued_bytes=0; physical_closes++;
 }
+void winmm_session_reset(void)
+{
+	hard_close();
+	memset(&active, 0, sizeof(active));
+}
 static void cleanup(void)
 {
 	unsigned long final_tail_ms;

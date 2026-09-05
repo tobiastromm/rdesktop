@@ -61,4 +61,5 @@ struct audio_driver *sgi_register(char *options);
 struct audio_driver *sun_register(char *options);
 #ifdef RDPSND_WINMM
 struct audio_driver *winmm_register(char *options);
+void winmm_session_reset(void);
 #endif

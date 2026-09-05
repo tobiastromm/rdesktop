@@ -504,3 +504,46 @@ cache_put_brush_data(uint8 colour_code, uint8 idx, BRUSHDATA * brush_data)
 		logger(Core, Error, "cache_put_brush_data(), colour=%d, idx=%d", colour_code, idx);
 	}
 }
+
+/* Release process-local cache objects before another GUI session starts. */
+void
+cache_reset_state(void)
+{
+	size_t id, idx;
+
+	for (id = 0; id < NUM_ELEMENTS(g_bmpcache); id++)
+	{
+		for (idx = 0; idx < NUM_ELEMENTS(g_bmpcache[id]); idx++)
+			if (g_bmpcache[id][idx].bitmap != NULL)
+				ui_destroy_bitmap(g_bmpcache[id][idx].bitmap);
+		if (g_volatile_bc[id] != NULL)
+			ui_destroy_bitmap(g_volatile_bc[id]);
+	}
+	for (id = 0; id < NUM_ELEMENTS(g_fontcache); id++)
+		for (idx = 0; idx < NUM_ELEMENTS(g_fontcache[id]); idx++)
+			if (g_fontcache[id][idx].pixmap != NULL)
+				ui_destroy_glyph(g_fontcache[id][idx].pixmap);
+	for (idx = 0; idx < NUM_ELEMENTS(g_textcache); idx++)
+		if (g_textcache[idx].data != NULL)
+			xfree(g_textcache[idx].data);
+	for (idx = 0; idx < NUM_ELEMENTS(g_cursorcache); idx++)
+		if (g_cursorcache[idx] != NULL)
+			ui_destroy_cursor(g_cursorcache[idx]);
+	for (id = 0; id < NUM_ELEMENTS(g_brushcache); id++)
+		for (idx = 0; idx < NUM_ELEMENTS(g_brushcache[id]); idx++)
+			if (g_brushcache[id][idx].data != NULL)
+				xfree(g_brushcache[id][idx].data);
+
+	memset(g_bmpcache, 0, sizeof(g_bmpcache));
+	memset(g_volatile_bc, 0, sizeof(g_volatile_bc));
+	memset(g_volatile_bc_width, 0, sizeof(g_volatile_bc_width));
+	memset(g_volatile_bc_height, 0, sizeof(g_volatile_bc_height));
+	for (id = 0; id < NUM_ELEMENTS(g_bmpcache_lru); id++)
+		g_bmpcache_lru[id] = g_bmpcache_mru[id] = NOT_SET;
+	memset(g_bmpcache_count, 0, sizeof(g_bmpcache_count));
+	memset(g_fontcache, 0, sizeof(g_fontcache));
+	memset(g_textcache, 0, sizeof(g_textcache));
+	memset(g_deskcache, 0, sizeof(g_deskcache));
+	memset(g_cursorcache, 0, sizeof(g_cursorcache));
+	memset(g_brushcache, 0, sizeof(g_brushcache));
+}

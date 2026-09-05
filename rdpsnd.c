@@ -595,6 +595,9 @@ rdpsnd_reset_state(void)
 	rdpsnd_queue_clear();
 	rdpsnd_negotiated = False;
 	rdpsnd_input_reset_state();
+#ifdef RDPSND_WINMM
+	winmm_session_reset();
+#endif
 }
 
 

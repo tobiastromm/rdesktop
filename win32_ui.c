@@ -9,6 +9,7 @@
 #include "win32_clipboard.h"
 #include "config.h"
 #include "win32_i18n.h"
+#include "win32_window_geometry.h"
 
 extern RD_BOOL g_user_quit;
 extern RD_BOOL g_exit_mainloop;
@@ -26,7 +27,8 @@ int g_win32_bitmap_depth = 32;
 static HWND win32_window;
 static HWND win32_connection_bar;
 static WNDPROC win32_connection_bar_default_proc;
-static RDESKTOP_WINDOW_MODE win32_preferred_window_mode = RDESKTOP_WINDOW_CLIENT_SIZE;
+static RDESKTOP_WINDOW_MODE win32_configured_window_mode = RDESKTOP_WINDOW_CLIENT_SIZE;
+static WIN32_WINDOW_STATE win32_runtime_window_state = WIN32_WINDOW_STATE_NORMAL;
 #define WIN32_BAR_MINIMIZE 9101
 #define WIN32_BAR_RESTORE 9102
 #define WIN32_BAR_CLOSE 9103
@@ -50,7 +52,6 @@ static RD_BOOL win32_dirty_valid = False;
 static RECT win32_dirty_rect;
 static RD_BOOL win32_clip_active = False;
 static RECT win32_clip_rect;
-static RD_BOOL win32_resizing_guard = False;
 static RD_BOOL win32_in_sizemove = False;
 static int win32_view_x = 0;
 static int win32_view_y = 0;
@@ -345,7 +346,6 @@ typedef struct {
 
 void ui_rect(int x, int y, int cx, int cy, uint32 colour);
 static void win32_invalidate_rect(int x, int y, int cx, int cy);
-static void win32_force_client_size(uint32 width, uint32 height);
 static void win32_update_view_size(void);
 static void win32_client_to_remote(POINT *point);
 static void win32_remote_to_client(POINT *point);
@@ -585,12 +585,15 @@ static LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wparam
         return 0;
     case WM_SIZE:
         if (wparam == SIZE_MAXIMIZED && !g_fullscreen &&
-            win32_preferred_window_mode == RDESKTOP_WINDOW_FULLSCREEN) {
+            win32_maximize_window_state(win32_configured_window_mode) ==
+            WIN32_WINDOW_STATE_FULLSCREEN) {
             win32_enter_fullscreen();
             return 0;
         }
-        if (wparam == SIZE_MAXIMIZED && !g_fullscreen)
-            g_window_mode = RDESKTOP_WINDOW_FILL_AVAILABLE;
+        if (!g_fullscreen && wparam == SIZE_MAXIMIZED)
+            win32_runtime_window_state = WIN32_WINDOW_STATE_MAXIMIZED;
+        else if (!g_fullscreen && wparam == SIZE_RESTORED)
+            win32_runtime_window_state = WIN32_WINDOW_STATE_NORMAL;
         win32_update_view_size();
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
@@ -851,7 +854,7 @@ win32_enter_fullscreen(void)
     if (!GetMonitorInfoA(monitor, &mi))
         return;
     g_fullscreen = True;
-    g_window_mode = RDESKTOP_WINDOW_FULLSCREEN;
+    win32_runtime_window_state = WIN32_WINDOW_STATE_FULLSCREEN;
     SetWindowLongA(win32_window, GWL_STYLE, WS_POPUP);
     SetWindowPos(win32_window, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
         mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top,
@@ -868,7 +871,10 @@ win32_restore_from_fullscreen(void)
     MONITORINFO mi;
     HMONITOR monitor;
     RECT outer = { 0, 0, (LONG)win32_width, (LONG)win32_height };
-    int width, height, x, y;
+    WIN32_GEOMETRY_RECT work;
+    WIN32_GEOMETRY_RECT screen;
+    WIN32_WINDOW_GEOMETRY geometry;
+    int chrome_width, chrome_height;
     if (!win32_window || !g_fullscreen)
         return;
     monitor = MonitorFromWindow(win32_window, MONITOR_DEFAULTTONEAREST);
@@ -876,22 +882,21 @@ win32_restore_from_fullscreen(void)
     if (!GetMonitorInfoA(monitor, &mi))
         return;
     g_fullscreen = False;
-    g_window_mode = RDESKTOP_WINDOW_CLIENT_SIZE;
+    win32_runtime_window_state = WIN32_WINDOW_STATE_NORMAL;
     if (win32_connection_bar) {
         DestroyWindow(win32_connection_bar);
         win32_connection_bar = NULL;
     }
     SetWindowLongA(win32_window, GWL_STYLE, WS_OVERLAPPEDWINDOW);
     AdjustWindowRectEx(&outer, WS_OVERLAPPEDWINDOW, FALSE, 0);
-    width = outer.right - outer.left;
-    height = outer.bottom - outer.top;
-    if (width > mi.rcWork.right - mi.rcWork.left)
-        width = mi.rcWork.right - mi.rcWork.left;
-    if (height > mi.rcWork.bottom - mi.rcWork.top)
-        height = mi.rcWork.bottom - mi.rcWork.top;
-    x = mi.rcWork.left + ((mi.rcWork.right - mi.rcWork.left) - width) / 2;
-    y = mi.rcWork.top + ((mi.rcWork.bottom - mi.rcWork.top) - height) / 2;
-    SetWindowPos(win32_window, HWND_NOTOPMOST, x, y, width, height,
+    chrome_width = (outer.right - outer.left) - (int)win32_width;
+    chrome_height = (outer.bottom - outer.top) - (int)win32_height;
+    work.left=mi.rcWork.left;work.top=mi.rcWork.top;work.right=mi.rcWork.right;work.bottom=mi.rcWork.bottom;
+    screen.left=mi.rcMonitor.left;screen.top=mi.rcMonitor.top;screen.right=mi.rcMonitor.right;screen.bottom=mi.rcMonitor.bottom;
+    win32_calculate_window_geometry(&work,&screen,(int)win32_width,(int)win32_height,
+        chrome_width,chrome_height,0,0,&geometry);
+    SetWindowPos(win32_window, HWND_NOTOPMOST, geometry.window.left, geometry.window.top,
+        geometry.window.right-geometry.window.left, geometry.window.bottom-geometry.window.top,
         SWP_FRAMECHANGED | SWP_SHOWWINDOW);
     win32_update_view_size();
     InvalidateRect(win32_window, NULL, FALSE);
@@ -921,46 +926,43 @@ RD_BOOL ui_create_window(uint32 width, uint32 height)
     DWORD style = WS_OVERLAPPEDWINDOW;
     HDC screen_dc;
     RECT rect = { 0, 0, (LONG)width, (LONG)height };
-    RECT workarea;
-    int work_w;
-    int work_h;
-    int target_client_w;
-    int target_client_h;
-    int wnd_x = CW_USEDEFAULT;
-    int wnd_y = CW_USEDEFAULT;
-    win32_preferred_window_mode = g_window_mode;
-    SystemParametersInfoA(SPI_GETWORKAREA, 0, &workarea, 0);
-    work_w = workarea.right - workarea.left;
-    work_h = workarea.bottom - workarea.top;
-    if (g_fullscreen) {
-        style = WS_POPUP;
-        wnd_x = 0;
-        wnd_y = 0;
-    } else {
-        target_client_w = (int)width;
-        target_client_h = (int)height;
-        if (target_client_w > work_w)
-            target_client_w = work_w;
-        if (target_client_h > work_h)
-            target_client_h = work_h;
-        rect.right = rect.left + target_client_w;
-        rect.bottom = rect.top + target_client_h;
-        AdjustWindowRect(&rect, style, FALSE);
-        if (target_client_w != (int)width || target_client_h != (int)height) {
-            wnd_x = workarea.left;
-            wnd_y = workarea.top;
-        }
+    POINT anchor;
+    HMONITOR monitor;
+    MONITORINFO mi;
+    WIN32_GEOMETRY_RECT work;
+    WIN32_GEOMETRY_RECT screen;
+    WIN32_WINDOW_GEOMETRY geometry;
+    int chrome_width=0,chrome_height=0;
+    win32_configured_window_mode = g_window_mode;
+    win32_runtime_window_state = win32_initial_window_state(g_window_mode);
+    GetCursorPos(&anchor);
+    monitor=MonitorFromPoint(anchor,MONITOR_DEFAULTTOPRIMARY);
+    mi.cbSize=sizeof(mi);
+    if(!GetMonitorInfoA(monitor,&mi))return False;
+    work.left=mi.rcWork.left;work.top=mi.rcWork.top;work.right=mi.rcWork.right;work.bottom=mi.rcWork.bottom;
+    screen.left=mi.rcMonitor.left;screen.top=mi.rcMonitor.top;screen.right=mi.rcMonitor.right;screen.bottom=mi.rcMonitor.bottom;
+    if (win32_runtime_window_state == WIN32_WINDOW_STATE_FULLSCREEN)
+        style=WS_POPUP;
+    else {
+        AdjustWindowRectEx(&rect,style,FALSE,0);
+        chrome_width=(rect.right-rect.left)-(int)width;
+        chrome_height=(rect.bottom-rect.top)-(int)height;
     }
+    win32_calculate_window_geometry(&work,&screen,(int)width,(int)height,
+        chrome_width,chrome_height,
+        win32_runtime_window_state==WIN32_WINDOW_STATE_MAXIMIZED,
+        win32_runtime_window_state==WIN32_WINDOW_STATE_FULLSCREEN,&geometry);
     win32_window = CreateWindowExA(0, win32_class_name,
                                    g_title[0] ? g_title : "rdesktop",
-                                   style, wnd_x, wnd_y,
-                                   rect.right - rect.left, rect.bottom - rect.top,
+                                   style, geometry.window.left, geometry.window.top,
+                                   geometry.window.right-geometry.window.left,
+                                   geometry.window.bottom-geometry.window.top,
                                    NULL, NULL, GetModuleHandleA(NULL), NULL);
     if (!win32_window)
         return False;
     win32_connection_bar = NULL;
     if (g_fullscreen)
-        win32_create_connection_bar((int)width);
+        win32_create_connection_bar(geometry.client_width);
     win32_clipboard_attach(win32_window);
     win32_dc = CreateCompatibleDC(NULL);
     if (!win32_dc)
@@ -984,12 +986,10 @@ RD_BOOL ui_create_window(uint32 width, uint32 height)
         if (win32_frame)
             win32_old_frame = (HBITMAP)SelectObject(win32_dc, win32_frame);
     }
-    ShowWindow(win32_window, g_window_mode == RDESKTOP_WINDOW_FILL_AVAILABLE ?
+    ShowWindow(win32_window, win32_runtime_window_state == WIN32_WINDOW_STATE_MAXIMIZED ?
                SW_MAXIMIZE : SW_SHOW);
     UpdateWindow(win32_window);
     win32_update_view_size();
-    if (g_fullscreen)
-        win32_force_client_size(width, height);
     return win32_frame != NULL;
 }
 
@@ -1015,8 +1015,6 @@ void ui_resize_window(uint32 width, uint32 height)
         if (win32_frame)
             win32_old_frame = (HBITMAP)SelectObject(win32_dc, win32_frame);
     }
-    if (g_fullscreen)
-        win32_force_client_size(width, height);
     win32_width = width;
     win32_height = height;
     win32_stride = width * 4;
@@ -1366,40 +1364,6 @@ static void win32_invalidate(void)
 {
     if (win32_window)
         InvalidateRect(win32_window, NULL, FALSE);
-}
-
-static void win32_force_client_size(uint32 width, uint32 height)
-{
-    RECT client;
-    RECT outer;
-    DWORD style;
-    DWORD exstyle;
-    RECT window;
-    int attempt;
-    if (!win32_window)
-        return;
-    style = (DWORD)GetWindowLongA(win32_window, GWL_STYLE);
-    exstyle = (DWORD)GetWindowLongA(win32_window, GWL_EXSTYLE);
-    outer.left = 0;
-    outer.top = 0;
-    outer.right = (LONG)width;
-    outer.bottom = (LONG)height;
-    AdjustWindowRectEx(&outer, style, FALSE, exstyle);
-    for (attempt = 0; attempt < 3; attempt++) {
-        GetClientRect(win32_window, &client);
-        if ((uint32)(client.right - client.left) == width &&
-            (uint32)(client.bottom - client.top) == height)
-            return;
-        GetWindowRect(win32_window, &window);
-        win32_resizing_guard = True;
-        SetWindowPos(win32_window, NULL,
-                     window.left,
-                     window.top,
-                     outer.right - outer.left,
-                     outer.bottom - outer.top,
-                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-        win32_resizing_guard = False;
-    }
 }
 
 static void win32_invalidate_rect(int x, int y, int cx, int cy)

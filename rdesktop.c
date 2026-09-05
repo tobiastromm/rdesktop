@@ -1313,7 +1313,11 @@ main(int argc, char *argv[])
 
 	for (c = 1; c < argc; c++)
 	{
-		if (!strcmp(argv[c], "--admin") || !strcmp(argv[c], "/admin"))
+		if (!strcmp(argv[c], "--help"))
+		{
+			argv[c] = "-h";
+		}
+		else if (!strcmp(argv[c], "--admin") || !strcmp(argv[c], "/admin"))
 			argv[c] = "-0";
 		else if (!strcmp(argv[c], "--shadow"))
 		{

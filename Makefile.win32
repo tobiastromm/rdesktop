@@ -12,13 +12,21 @@ BIN_DIR = $(TARGET_DIR)/bin
 PACKAGE_DIR = $(TARGET_DIR)/package
 TEST_OBJ_DIR = $(OBJ_DIR)/tests
 PACKAGE_ZIP = $(PACKAGE_DIR)/rdesktop-$(TARGET_NAME).zip
+MINGW_BIN = C:/msys64/mingw64/bin
+MINGW_BIN_CMD = C:\msys64\mingw64\bin
+RUNTIME_DLLS = libbrotlicommon.dll libbrotlidec.dll libbrotlienc.dll libffi-8.dll \
+	libgmp-10.dll libgnutls-30.dll libhogweed-7.dll libiconv-2.dll \
+	libidn2-0.dll libintl-8.dll libnettle-9.dll libp11-kit-0.dll \
+	libtasn1-6.dll libunistring-5.dll libwinpthread-1.dll libzstd.dll zlib1.dll
+BIN_RUNTIME_DLLS = $(addprefix $(BIN_DIR)/,$(RUNTIME_DLLS))
 
 VERSION = 1.9.1
 CPPFLAGS = -D_WIN32 -DWIN32_LEAN_AND_MEAN -DL_ENDIAN -DHAVE_STDINT_H -DIPv6 \
 	-DPACKAGE_VERSION=\"$(VERSION)\" -DKEYMAP_PATH=\"keymaps/\"
 CFLAGS = -std=gnu99 -O2 -Wall -Wextra
 LDFLAGS =
-WIN32_SYSTEM_LIBS = -lbcrypt -ladvapi32 -lshell32 -lws2_32
+WIN32_SYSTEM_LIBS = -lgnutls -lhogweed -lnettle -ltasn1 -lgmp -liconv \
+	-lbcrypt -ladvapi32 -lshell32 -lws2_32 -luser32 -lgdi32 -lole32
 
 # Keep the upstream 1.9.1 protocol inventory explicit. Platform replacements
 # required to link a Windows client will be introduced in later stages.
@@ -26,8 +34,8 @@ CORE_SOURCES = tcp.c asn.c iso.c mcs.c secure.c licence.c rdp.c orders.c \
 	bitmap.c cache.c rdp5.c channels.c rdpdr.c addin.c rdpdr_devices_win32.c \
 	mppc.c pstcache.c lspci.c seamless.c \
 	ssl.c utils.c stream.c dvc.c rdpear_win32.c rdpedisp.c cssp.c ntlmssp.c \
-	spnego.c pkix_asn1_tab.c config.c platform.c
-CLI_SOURCES = rdesktop.c
+	spnego.c config.c platform.c
+CLI_SOURCES = rdesktop.c win32_ui.c win32_session_support.c
 WIN32_SOURCES = $(CLI_SOURCES) $(CORE_SOURCES)
 WIN32_OBJECTS = $(addprefix $(OBJ_DIR)/,$(WIN32_SOURCES:.c=.o))
 CONFIG_TEST = $(TEST_OBJ_DIR)/config-test.exe
@@ -35,6 +43,7 @@ PLATFORM_TEST = $(TEST_OBJ_DIR)/platform-test.exe
 ADDIN_TEST = $(TEST_OBJ_DIR)/addin-test.exe
 RDPDR_TEST = $(TEST_OBJ_DIR)/rdpdr-test.exe
 RDPEAR_TEST = $(TEST_OBJ_DIR)/rdpear-test.exe
+ROP_TEST = $(TEST_OBJ_DIR)/rop-test.exe
 
 # These official 1.9.1 sources remain in-tree and are intentionally deferred
 # until their Windows platform implementations are rebuilt.
@@ -45,8 +54,13 @@ DEFERRED_PLATFORM_SOURCES = xwin.c xgui.c xkeymap.c ewmhints.c xclip.c \
 
 .PHONY: all preflight directories clean package tests
 
-all: preflight directories $(WIN32_OBJECTS)
-	@echo Win32 objects compiled. Linking starts after the platform backend is rebuilt.
+all: preflight directories $(BIN_DIR)/rdesktop.exe
+
+$(BIN_DIR)/rdesktop.exe: $(WIN32_OBJECTS) | directories
+	$(CC) $(LDFLAGS) -o $@ $^ $(WIN32_SYSTEM_LIBS)
+
+$(BIN_DIR)/%.dll: $(MINGW_BIN)/%.dll | directories
+	copy /Y "$(MINGW_BIN_CMD)\$*.dll" "$(BIN_DIR)\$*.dll" >NUL
 
 preflight:
 	@where $(CC) >NUL 2>NUL || (echo ERROR: $(CC) not found on PATH. Add the MinGW-w64 x64 toolchain to PATH or override CC. & exit /B 1)
@@ -61,12 +75,13 @@ directories:
 $(OBJ_DIR)/%.o: %.c | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
-tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDPDR_TEST) $(RDPEAR_TEST)
+tests: preflight directories $(CONFIG_TEST) $(PLATFORM_TEST) $(ADDIN_TEST) $(RDPDR_TEST) $(RDPEAR_TEST) $(ROP_TEST)
 	"$(CONFIG_TEST)"
 	"$(PLATFORM_TEST)"
 	"$(ADDIN_TEST)"
 	"$(RDPDR_TEST)"
 	"$(RDPEAR_TEST)"
+	"$(ROP_TEST)"
 
 $(CONFIG_TEST): tests/config_test.c config.c config.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -I. -o $@ tests/config_test.c config.c
@@ -83,8 +98,11 @@ $(RDPDR_TEST): tests/rdpdr_win32_test.c rdpdr_devices_win32.c | directories
 $(RDPEAR_TEST): tests/rdpear_win32_test.c rdpear_win32.c | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ tests/rdpear_win32_test.c rdpear_win32.c -lws2_32
 
-package: preflight
-	"$(POWERSHELL)" -NoProfile -ExecutionPolicy Bypass -File package-win32.ps1 -BinDir "$(BIN_DIR)" -PackageDir "$(PACKAGE_DIR)" -PackageName "rdesktop-$(TARGET_NAME).zip"
+$(ROP_TEST): test_memblt_rop.c rop_semantics.h | directories
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ test_memblt_rop.c
+
+package: preflight directories $(BIN_DIR)/rdesktop.exe $(BIN_RUNTIME_DLLS)
+	"$(POWERSHELL)" -NoProfile -ExecutionPolicy Bypass -File package-win32.ps1 -SourceRoot "." -BinDir "$(BIN_DIR)" -PackageDir "$(PACKAGE_DIR)" -PackageName "rdesktop-$(TARGET_NAME).zip"
 
 clean:
 	@if exist "$(TARGET_DIR)" rmdir /S /Q "$(TARGET_DIR)"

@@ -32,6 +32,11 @@
 #include "rdesktop.h"
 #include "ssl.h"
 
+#ifdef _WIN32
+extern int g_win32_bitmap_bpp;
+extern int g_win32_bitmap_depth;
+#endif
+
 
 extern uint16 g_mcs_userid;
 extern char *g_username;
@@ -931,8 +936,10 @@ rdp_out_ts_order_capabilityset(STREAM s)
 	order_caps[TS_NEG_PATBLT_INDEX] = 1;
 	order_caps[TS_NEG_SCRBLT_INDEX] = 1;
 	order_caps[TS_NEG_LINETO_INDEX] = 1;
+#ifndef _WIN32
 	order_caps[TS_NEG_DRAWNINEGRID_INDEX] = 1;
 	order_caps[TS_NEG_MULTI_DRAWNINEGRID_INDEX] = 1;
+#endif
 	order_caps[TS_NEG_POLYLINE_INDEX] = 1;
 	order_caps[TS_NEG_INDEX_INDEX] = 1;
 
@@ -1684,6 +1691,10 @@ process_bitmap_data(STREAM s)
 			in_uint8a(s, &bmpdata[(height - y - 1) * (width * Bpp)], width * Bpp);
 		}
 		
+#ifdef _WIN32
+		g_win32_bitmap_bpp = Bpp;
+		g_win32_bitmap_depth = bpp;
+#endif
 		ui_paint_bitmap(left, top, cx, cy, width, height, bmpdata);
 		xfree(bmpdata);
 		return;
@@ -1711,6 +1722,10 @@ process_bitmap_data(STREAM s)
 	bmpdata = (uint8 *) xmalloc(width * height * Bpp);
 	if (bitmap_decompress(bmpdata, width, height, data, size, Bpp))
 	{
+#ifdef _WIN32
+		g_win32_bitmap_bpp = Bpp;
+		g_win32_bitmap_depth = bpp;
+#endif
 		ui_paint_bitmap(left, top, cx, cy, width, height, bmpdata);
 	}
 	else

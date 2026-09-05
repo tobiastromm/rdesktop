@@ -25,6 +25,10 @@ extern size_t g_next_packet;
 static RDP_ORDER_STATE g_order_state;
 extern RDP_VERSION g_rdp_version;
 extern int g_server_depth;
+#ifdef _WIN32
+extern int g_win32_bitmap_bpp;
+extern int g_win32_bitmap_depth;
+#endif
 
 #define NINEGRID_CACHE_ENTRIES 256
 #define TS_ALTSEC_ORDER_MASK 0x03
@@ -545,6 +549,10 @@ ninegrid_render_rect(NINEGRID_CACHE_ENTRY *entry, DRAWNINEGRID_ORDER *order,
 		}
 	}
 
+#ifdef _WIN32
+	g_win32_bitmap_bpp = Bpp;
+	g_win32_bitmap_depth = Bpp * 8;
+#endif
 	ui_paint_bitmap(left, top, width, height, width, height, dst);
 	xfree(dst);
 }
@@ -1399,6 +1407,10 @@ process_raw_bmpcache(STREAM s)
 		       width * Bpp);
 	}
 
+#ifdef _WIN32
+	g_win32_bitmap_bpp = Bpp;
+	g_win32_bitmap_depth = bpp;
+#endif
 	bitmap = ui_create_bitmap(width, height, inverted);
 	xfree(inverted);
 	cache_put_bitmap(cache_id, cache_idx, bitmap);
@@ -1451,6 +1463,10 @@ process_bmpcache(STREAM s)
 
 	if (bitmap_decompress(bmpdata, width, height, data, size, Bpp))
 	{
+#ifdef _WIN32
+		g_win32_bitmap_bpp = Bpp;
+		g_win32_bitmap_depth = bpp;
+#endif
 		bitmap = ui_create_bitmap(width, height, bmpdata);
 		cache_put_bitmap(cache_id, cache_idx, bitmap);
 	}
@@ -1527,6 +1543,10 @@ process_bmpcache2(STREAM s, uint16 flags, RD_BOOL compressed)
 			       &data[y * (width * Bpp)], width * Bpp);
 	}
 
+#ifdef _WIN32
+	g_win32_bitmap_bpp = Bpp;
+	g_win32_bitmap_depth = Bpp * 8;
+#endif
 	bitmap = cache_get_bitmap_for_update(cache_id, cache_idx, width, height);
 	if (bitmap && ui_update_bitmap(bitmap, width, height, bmpdata))
 	{

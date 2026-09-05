@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 param(
     [Parameter(Mandatory = $true)]
+    [string]$SourceRoot,
+
+    [Parameter(Mandatory = $true)]
     [string]$BinDir,
 
     [Parameter(Mandatory = $true)]
@@ -17,6 +20,18 @@ if (-not (Test-Path -LiteralPath $BinDir -PathType Container)) {
 }
 
 $binRoot = (Resolve-Path -LiteralPath $BinDir).Path.TrimEnd('\', '/')
+$sourceRootPath = (Resolve-Path -LiteralPath $SourceRoot).Path.TrimEnd('\', '/')
+$sourceKeymaps = Join-Path $sourceRootPath 'keymaps'
+if (-not (Test-Path -LiteralPath $sourceKeymaps -PathType Container)) {
+    throw "Upstream keymaps directory does not exist: $sourceKeymaps"
+}
+
+$binKeymaps = Join-Path $binRoot 'keymaps'
+if (Test-Path -LiteralPath $binKeymaps) {
+    Remove-Item -LiteralPath $binKeymaps -Recurse -Force
+}
+Copy-Item -LiteralPath $sourceKeymaps -Destination $binKeymaps -Recurse
+
 $files = @(Get-ChildItem -LiteralPath $binRoot -File -Recurse)
 if ($files.Count -eq 0) {
     throw "No built runtime files found in $BinDir"

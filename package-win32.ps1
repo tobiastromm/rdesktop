@@ -22,6 +22,7 @@ if (-not (Test-Path -LiteralPath $BinDir -PathType Container)) {
 $binRoot = (Resolve-Path -LiteralPath $BinDir).Path.TrimEnd('\', '/')
 $sourceRootPath = (Resolve-Path -LiteralPath $SourceRoot).Path.TrimEnd('\', '/')
 $sourceKeymaps = Join-Path $sourceRootPath 'keymaps'
+$sourceLanguages = Join-Path $sourceRootPath 'resources\lang'
 if (-not (Test-Path -LiteralPath $sourceKeymaps -PathType Container)) {
     throw "Upstream keymaps directory does not exist: $sourceKeymaps"
 }
@@ -32,12 +33,22 @@ if (Test-Path -LiteralPath $binKeymaps) {
 }
 Copy-Item -LiteralPath $sourceKeymaps -Destination $binKeymaps -Recurse
 
+$binLanguages = Join-Path $binRoot 'resources\lang'
+if (Test-Path -LiteralPath $binLanguages) {
+    Remove-Item -LiteralPath $binLanguages -Recurse -Force
+}
+New-Item -ItemType Directory -Path $binLanguages -Force | Out-Null
+Copy-Item -Path (Join-Path $sourceLanguages '*.lang') -Destination $binLanguages
+
 $files = @(Get-ChildItem -LiteralPath $binRoot -File -Recurse)
 if ($files.Count -eq 0) {
     throw "No built runtime files found in $BinDir"
 }
 if (-not ($files | Where-Object { $_.Name -eq 'rdesktop.exe' })) {
     throw "rdesktop.exe has not been built; packaging cannot continue"
+}
+if (-not ($files | Where-Object { $_.Name -eq 'rdesktop-gui.exe' })) {
+    throw "rdesktop-gui.exe has not been built; packaging cannot continue"
 }
 
 if (Test-Path -LiteralPath $PackageDir) {

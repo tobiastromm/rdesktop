@@ -17,6 +17,8 @@ extern int g_server_depth;
 extern char g_keymapname[PATH_MAX];
 extern char g_password[64];
 extern RD_BOOL g_fullscreen;
+extern RDESKTOP_WINDOW_MODE g_window_mode;
+extern RD_BOOL g_show_connection_bar;
 #ifdef WITH_RDPSND
 extern RD_BOOL g_rdpsnd;
 #endif
@@ -46,6 +48,19 @@ rdesktop_config_init_defaults(RDESKTOP_CONFIG *config)
 	config->geometry_type = Fixed;
 	config->colour_depth = -1;
 	config->audio_mode = RDESKTOP_AUDIO_DISABLED;
+	config->window_mode = RDESKTOP_WINDOW_CLIENT_SIZE;
+	config->show_connection_bar = True;
+	config->numlock_sync = True;
+	config->clipboard_enabled = True;
+	config->send_motion = True;
+	config->bitmap_cache = True;
+	config->compression = True;
+}
+
+void
+rdesktop_config_init(RDESKTOP_CONFIG *config)
+{
+	rdesktop_config_init_defaults(config);
 }
 
 void
@@ -71,6 +86,17 @@ rdesktop_config_validate(const RDESKTOP_CONFIG *config)
 		(config->colour_depth == -1 || config->colour_depth == 8 ||
 		 config->colour_depth == 15 || config->colour_depth == 16 ||
 		 config->colour_depth == 24 || config->colour_depth == 32);
+}
+
+int
+rdesktop_config_validate_message(const RDESKTOP_CONFIG *config, char *error,
+				 size_t error_size)
+{
+	if (rdesktop_config_validate(config) && config->server[0] != '\0')
+		return 0;
+	if (error && error_size)
+		STRNCPY(error, "Invalid connection configuration.", error_size);
+	return -1;
 }
 
 int
@@ -255,6 +281,12 @@ rdesktop_config_clear_credentials(RDESKTOP_CONFIG *config)
 }
 
 void
+rdesktop_config_clear_password(RDESKTOP_CONFIG *config)
+{
+	rdesktop_config_clear_credentials(config);
+}
+
+void
 rdesktop_config_clear_legacy_credentials(void)
 {
 	volatile char *cursor = g_password;
@@ -292,6 +324,10 @@ rdesktop_config_apply_to_legacy(const RDESKTOP_CONFIG *config, char *domain,
 	g_server_depth = config->colour_depth;
 	STRNCPY(g_keymapname, config->keymap, sizeof(g_keymapname));
 	g_fullscreen = config->fullscreen;
+	g_window_mode = config->window_mode;
+	g_show_connection_bar = config->show_connection_bar;
+	if (config->window_mode == RDESKTOP_WINDOW_FILL_AVAILABLE)
+		g_window_size_type = Workarea;
 	if (config->fullscreen)
 		g_window_size_type = Fullscreen;
 }

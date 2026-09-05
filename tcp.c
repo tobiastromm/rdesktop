@@ -78,7 +78,8 @@ struct sockaddr_in *g_server_address = NULL;
 
 static char *g_last_server_name = NULL;
 static RD_BOOL g_ssl_initialized = False;
-static int g_sock;
+static int g_sock = -1;
+static volatile int g_connect_cancelled;
 static RD_BOOL g_run_ui = False;
 static struct stream g_in;
 int g_tcp_port_rdp = TCP_PORT_RDP;
@@ -606,6 +607,9 @@ tcp_connect(char *server)
 	uint32 option_value;
 	char buf[NI_MAXHOST];
 
+	if (g_connect_cancelled)
+		return False;
+
 #ifdef IPv6
 
 	int n;
@@ -719,6 +723,12 @@ tcp_connect(char *server)
 		logger(Core, Error, "tcp_connect(), socket() failed: %s", TCP_STRERROR);
 		return False;
 	}
+	if (g_connect_cancelled)
+	{
+		TCP_CLOSE(g_sock);
+		g_sock = -1;
+		return False;
+	}
 
 	logger(Core, Debug, "tcp_connect(), trying %s (%s)",
 	       server, inet_ntop(g_server_address->sin_family,
@@ -760,6 +770,37 @@ tcp_connect(char *server)
 		xfree(g_last_server_name);
 	g_last_server_name = strdup(server);
 	return True;
+}
+
+void
+tcp_prepare_connect(void)
+{
+#ifdef _WIN32
+	InterlockedExchange((volatile LONG *) &g_connect_cancelled, 0);
+#else
+	g_connect_cancelled = 0;
+#endif
+}
+
+void
+tcp_cancel_connect(void)
+{
+#ifdef _WIN32
+	InterlockedExchange((volatile LONG *) &g_connect_cancelled, 1);
+#else
+	g_connect_cancelled = 1;
+#endif
+	g_network_error = True;
+	if (g_sock != -1)
+	{
+#ifdef _WIN32
+		shutdown(g_sock, SD_BOTH);
+#else
+		shutdown(g_sock, SHUT_RDWR);
+#endif
+		TCP_CLOSE(g_sock);
+		g_sock = -1;
+	}
 }
 
 /* Disconnect on the TCP layer */

@@ -56,6 +56,7 @@ BRUSHDATA *cache_get_brush_data(uint8 colour_code, uint8 idx);
 void cache_put_brush_data(uint8 colour_code, uint8 idx, BRUSHDATA * brush_data);
 /* channels.c */
 VCHANNEL *channel_register(char *name, uint32 flags, void (*callback) (STREAM));
+void channel_reset_registry(void);
 STREAM channel_init(VCHANNEL * channel, uint32 length);
 void channel_send(STREAM s, VCHANNEL * channel);
 void channel_process(STREAM s, uint16 mcs_channel);
@@ -250,6 +251,8 @@ STREAM tcp_init(uint32 maxlen);
 void tcp_send(STREAM s);
 STREAM tcp_recv(STREAM s, uint32 length);
 RD_BOOL tcp_connect(char *server);
+void tcp_prepare_connect(void);
+void tcp_cancel_connect(void);
 void tcp_disconnect(void);
 char *tcp_get_address(void);
 RD_BOOL tcp_is_connected(void);

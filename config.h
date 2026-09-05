@@ -11,6 +11,14 @@ typedef enum
 }
 RDESKTOP_AUDIO_MODE;
 
+typedef enum
+{
+	RDESKTOP_WINDOW_CLIENT_SIZE,
+	RDESKTOP_WINDOW_FILL_AVAILABLE,
+	RDESKTOP_WINDOW_FULLSCREEN
+}
+RDESKTOP_WINDOW_MODE;
+
 typedef struct rdesktop_config
 {
 	/* Add fields only when their configuration source is migrated. */
@@ -38,11 +46,29 @@ typedef struct rdesktop_config
 	RD_BOOL fullscreen;
 	RDESKTOP_AUDIO_MODE audio_mode;
 	char audio_driver_options[256];
+	RDESKTOP_WINDOW_MODE window_mode;
+	RD_BOOL show_connection_bar;
+	RD_BOOL numlock_sync;
+	RD_BOOL clipboard_enabled;
+	RD_BOOL send_motion;
+	RD_BOOL bitmap_cache;
+	RD_BOOL compression;
+	RD_BOOL console_session;
+	RD_BOOL retry_on_network_error;
+	uint32 performance_flags;
+	char tls_version[4];
+	char codepage[16];
+	char shell[256];
+	char directory[256];
+	char title[64];
 }
 RDESKTOP_CONFIG;
 
 void rdesktop_config_init_defaults(RDESKTOP_CONFIG *config);
+void rdesktop_config_init(RDESKTOP_CONFIG *config);
 RD_BOOL rdesktop_config_validate(const RDESKTOP_CONFIG *config);
+int rdesktop_config_validate_message(const RDESKTOP_CONFIG *config, char *error,
+				     size_t error_size);
 RD_BOOL rdesktop_config_parse_server_endpoint(RDESKTOP_CONFIG *config);
 int rdesktop_config_parse_geometry(RDESKTOP_CONFIG *config, const char *geometry);
 void rdesktop_config_set_password(RDESKTOP_CONFIG *config, const char *password,
@@ -50,6 +76,7 @@ void rdesktop_config_set_password(RDESKTOP_CONFIG *config, const char *password,
 void rdesktop_config_request_password_prompt(RDESKTOP_CONFIG *config);
 void rdesktop_config_apply_credentials(const RDESKTOP_CONFIG *config);
 void rdesktop_config_clear_credentials(RDESKTOP_CONFIG *config);
+void rdesktop_config_clear_password(RDESKTOP_CONFIG *config);
 void rdesktop_config_clear_legacy_credentials(void);
 void rdesktop_config_apply_to_legacy(const RDESKTOP_CONFIG *config, char *domain,
 				     size_t domain_size);

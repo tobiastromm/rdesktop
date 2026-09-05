@@ -54,6 +54,7 @@
 
 #include "ssl.h"
 #include "config.h"
+#include "frontend.h"
 #include "platform.h"
 
 /* Reconnect timeout based on approximated cookie life-time */
@@ -96,6 +97,7 @@ extern int g_tcp_port_rdp;
 int g_server_depth = -1;
 int g_win_button_size = 0;	/* If zero, disable single app mode */
 RD_BOOL g_network_error = False;
+extern RD_BOOL g_exit_mainloop;
 RD_BOOL g_sendmotion = True;
 RD_BOOL g_bitmap_cache = True;
 RD_BOOL g_bitmap_cache_persist_enable = False;
@@ -107,6 +109,8 @@ RD_BOOL g_packet_encryption = True;
 RD_BOOL g_desktop_save = True;	/* desktop save order */
 RD_BOOL g_polygon_ellipse_orders = True;	/* polygon / ellipse orders */
 RD_BOOL g_fullscreen = False;
+RDESKTOP_WINDOW_MODE g_window_mode = RDESKTOP_WINDOW_CLIENT_SIZE;
+RD_BOOL g_show_connection_bar = True;
 RD_BOOL g_multimon = False;
 RD_BOOL g_use_gui_prompts = False;
 RD_BOOL g_gui_prompt_cancelled = False;
@@ -1241,8 +1245,22 @@ return_after_credential_cleanup(RDESKTOP_CONFIG *config, int status)
 	return status;
 }
 
-int
-main(int argc, char *argv[])
+static RD_BOOL g_frontend_session_activated;
+
+void
+rdesktop_frontend_mark_activated(void)
+{
+	g_frontend_session_activated = True;
+}
+
+RD_BOOL
+rdesktop_frontend_was_activated(void)
+{
+	return g_frontend_session_activated;
+}
+
+static int
+rdesktop_run_session(int argc, char *argv[], const RDESKTOP_CONFIG *provided_config)
 {
 	RDESKTOP_CONFIG config;
 	char server[256];
@@ -1269,8 +1287,12 @@ main(int argc, char *argv[])
 	char *rdpsnd_optarg = NULL;
 #endif
 
-	g_launcher_program = argv[0];
+	g_launcher_program = argc > 0 && argv != NULL ? argv[0] : "rdesktop-gui";
 	rdesktop_config_init_defaults(&config);
+	g_frontend_session_activated = False;
+	g_user_quit = False;
+	g_network_error = False;
+	g_exit_mainloop = False;
 
 	/* setup debug logging from environment */
 	logger_set_subjects(getenv("RDESKTOP_DEBUG"));
@@ -1310,6 +1332,36 @@ main(int argc, char *argv[])
 	g_embed_wnd = 0;
 
 	g_num_devices = 0;
+
+	if (provided_config != NULL)
+	{
+		config = *provided_config;
+		username_option = config.username[0] != '\0';
+		config.username_set = username_option;
+		password_option = config.password_present;
+		domain_option = config.domain[0] != '\0';
+		keymap_option = config.keymap[0] != '\0';
+		geometry_option = True;
+		fullscreen_option = config.fullscreen;
+		depth_option = config.colour_depth != -1;
+		STRNCPY(shell, config.shell, sizeof(shell));
+		STRNCPY(directory, config.directory, sizeof(directory));
+		STRNCPY(g_tls_version, config.tls_version, sizeof(g_tls_version));
+		STRNCPY(g_codepage, config.codepage, sizeof(g_codepage));
+		STRNCPY(g_title, config.title, sizeof(g_title));
+		g_console_session = config.console_session;
+		g_reconnect_on_network_error = config.retry_on_network_error;
+		g_numlock_sync = config.numlock_sync;
+		g_rdpclip = config.clipboard_enabled;
+		g_sendmotion = config.send_motion;
+		g_bitmap_cache = config.bitmap_cache;
+		g_rdp5_performanceflags = config.performance_flags;
+		if (config.compression)
+			flags |= RDP_INFO_COMPRESSION | RDP_INFO_COMPRESSION2;
+		if (!parse_server_and_port(&config) || !rdesktop_config_validate(&config))
+			return return_after_credential_cleanup(&config, EX_USAGE);
+		goto configuration_parsed;
+	}
 
 	for (c = 1; c < argc; c++)
 	{
@@ -1815,6 +1867,7 @@ main(int argc, char *argv[])
 		usage(argv[0]);
 		return return_after_credential_cleanup(&config, EX_USAGE);
 	}
+configuration_parsed:
 	if (g_local_cursor)
 	{
 		/* there is no point wasting bandwidth on cursor shadows
@@ -1822,22 +1875,25 @@ main(int argc, char *argv[])
 		g_rdp5_performanceflags |= PERF_DISABLE_CURSOR_SHADOW;
 	}
 
-	STRNCPY(config.server, argv[optind], sizeof(config.server));
-	if (string_has_rdp_uri_scheme(config.server))
+	if (provided_config == NULL)
 	{
-		if (!parse_rdp_uri(config.server, &config, shell,
-				   sizeof(shell), directory, sizeof(directory), username_option,
-				   password_option, domain_option, shell_option, directory_option,
-				   keymap_option, geometry_option, fullscreen_option, depth_option))
-			return return_after_credential_cleanup(&config, EX_USAGE);
-	}
-	else if (filename_has_rdp_suffix(config.server))
-	{
-		if (!parse_rdp_file(config.server, &config, shell,
-				    sizeof(shell), directory, sizeof(directory), username_option,
-				    password_option, domain_option, shell_option, directory_option,
-				    keymap_option, geometry_option, fullscreen_option, depth_option))
-			return return_after_credential_cleanup(&config, EX_USAGE);
+		STRNCPY(config.server, argv[optind], sizeof(config.server));
+		if (string_has_rdp_uri_scheme(config.server))
+		{
+			if (!parse_rdp_uri(config.server, &config, shell,
+					   sizeof(shell), directory, sizeof(directory), username_option,
+					   password_option, domain_option, shell_option, directory_option,
+					   keymap_option, geometry_option, fullscreen_option, depth_option))
+				return return_after_credential_cleanup(&config, EX_USAGE);
+		}
+		else if (filename_has_rdp_suffix(config.server))
+		{
+			if (!parse_rdp_file(config.server, &config, shell,
+					    sizeof(shell), directory, sizeof(directory), username_option,
+					    password_option, domain_option, shell_option, directory_option,
+					    keymap_option, geometry_option, fullscreen_option, depth_option))
+				return return_after_credential_cleanup(&config, EX_USAGE);
+		}
 	}
 	if (!parse_server_and_port(&config) || !rdesktop_config_validate(&config))
 	{
@@ -2195,6 +2251,7 @@ main(int argc, char *argv[])
 		g_reconnect_started_ts = 0;
 
 		logger(Core, Verbose, "Connection successful");
+		rdesktop_frontend_mark_activated();
 
 		rd_create_ui();
 		tcp_run_ui(True);
@@ -2335,6 +2392,30 @@ main(int argc, char *argv[])
 		xfree(g_redirect_username);
 
 	xfree(g_username);
+}
+
+void
+rdesktop_frontend_prepare_session(void)
+{
+	tcp_prepare_connect();
+}
+
+void
+rdesktop_frontend_cancel_session(void)
+{
+	tcp_cancel_connect();
+}
+
+int
+rdesktop_frontend_run(int argc, char *argv[], const RDESKTOP_CONFIG *provided_config)
+{
+	int result;
+
+	if (provided_config == NULL)
+		tcp_prepare_connect();
+	result = rdesktop_run_session(argc, argv, provided_config);
+	channel_reset_registry();
+	return result;
 }
 
 #ifdef EGD_SOCKET

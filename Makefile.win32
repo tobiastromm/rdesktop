@@ -28,7 +28,7 @@ LDFLAGS =
 WIN32_SYSTEM_LIBS = -lgnutls -lhogweed -lnettle -ltasn1 -lgmp -liconv \
 	-lbcrypt -ladvapi32 -lshell32 -lws2_32 -luser32 -lgdi32 -lole32
 
-WIN32_SYSTEM_LIBS += -lwinmm
+WIN32_SYSTEM_LIBS += -lwinmm -lcomctl32
 
 # Keep the upstream 1.9.1 protocol inventory explicit. Platform replacements
 # required to link a Windows client will be introduced in later stages.
@@ -37,9 +37,11 @@ CORE_SOURCES = tcp.c asn.c iso.c mcs.c secure.c licence.c rdp.c orders.c \
 	mppc.c pstcache.c lspci.c seamless.c rdpsnd.c rdpsnd_dsp.c rdpsnd_input.c rdpsnd_winmm.c \
 	ssl.c utils.c stream.c dvc.c rdpear_win32.c rdpedisp.c cssp.c ntlmssp.c cliprdr.c \
 	spnego.c config.c platform.c
-CLI_SOURCES = rdesktop.c win32_ui.c win32_session_support.c win32_clipboard.c
-WIN32_SOURCES = $(CLI_SOURCES) $(CORE_SOURCES)
-WIN32_OBJECTS = $(addprefix $(OBJ_DIR)/,$(WIN32_SOURCES:.c=.o))
+SHARED_SOURCES = rdesktop.c win32_ui.c win32_session_support.c win32_clipboard.c win32_i18n.c $(CORE_SOURCES)
+SHARED_OBJECTS = $(addprefix $(OBJ_DIR)/,$(SHARED_SOURCES:.c=.o))
+CLI_OBJECT = $(OBJ_DIR)/cli_main.o
+GUI_SOURCES = win32_gui_main.c win32_gui.c win32_gui_prefs.c
+GUI_OBJECTS = $(addprefix $(OBJ_DIR)/,$(GUI_SOURCES:.c=.o))
 CONFIG_TEST = $(TEST_OBJ_DIR)/config-test.exe
 PLATFORM_TEST = $(TEST_OBJ_DIR)/platform-test.exe
 ADDIN_TEST = $(TEST_OBJ_DIR)/addin-test.exe
@@ -60,10 +62,13 @@ DEFERRED_PLATFORM_SOURCES = xwin.c xgui.c xkeymap.c ewmhints.c xclip.c \
 
 .PHONY: all preflight directories clean package tests
 
-all: preflight directories $(BIN_DIR)/rdesktop.exe
+all: preflight directories $(BIN_DIR)/rdesktop.exe $(BIN_DIR)/rdesktop-gui.exe
 
-$(BIN_DIR)/rdesktop.exe: $(WIN32_OBJECTS) | directories
+$(BIN_DIR)/rdesktop.exe: $(CLI_OBJECT) $(SHARED_OBJECTS) | directories
 	$(CC) $(LDFLAGS) -o $@ $^ $(WIN32_SYSTEM_LIBS)
+
+$(BIN_DIR)/rdesktop-gui.exe: $(GUI_OBJECTS) $(SHARED_OBJECTS) | directories
+	$(CC) $(LDFLAGS) -mwindows -o $@ $^ $(WIN32_SYSTEM_LIBS)
 
 $(BIN_DIR)/%.dll: $(MINGW_BIN)/%.dll | directories
 	copy /Y "$(MINGW_BIN_CMD)\$*.dll" "$(BIN_DIR)\$*.dll" >NUL
@@ -123,7 +128,7 @@ $(CLIPBOARD_TEST): test_win32_clipboard.c win32_clipboard_logic.h | directories
 $(WINMM_TEST): test_rdpsnd_winmm.c rdpsnd_winmm_logic.h | directories
 	$(CC) $(CPPFLAGS) $(CFLAGS) -Werror -I. -o $@ test_rdpsnd_winmm.c -lwinmm
 
-package: preflight directories $(BIN_DIR)/rdesktop.exe $(BIN_RUNTIME_DLLS)
+package: preflight directories $(BIN_DIR)/rdesktop.exe $(BIN_DIR)/rdesktop-gui.exe $(BIN_RUNTIME_DLLS)
 	"$(POWERSHELL)" -NoProfile -ExecutionPolicy Bypass -File package-win32.ps1 -SourceRoot "." -BinDir "$(BIN_DIR)" -PackageDir "$(PACKAGE_DIR)" -PackageName "rdesktop-$(TARGET_NAME).zip"
 
 clean:

@@ -7,6 +7,8 @@
 #include "win32_keymap.h"
 #include "win32_toggle_state.h"
 #include "win32_clipboard.h"
+#include "config.h"
+#include "win32_i18n.h"
 
 extern RD_BOOL g_user_quit;
 extern RD_BOOL g_exit_mainloop;
@@ -14,12 +16,20 @@ extern uint32 g_requested_session_width;
 extern uint32 g_requested_session_height;
 extern char g_title[];
 extern RD_BOOL g_fullscreen;
+extern RDESKTOP_WINDOW_MODE g_window_mode;
+extern RD_BOOL g_show_connection_bar;
 extern RD_BOOL g_sendmotion;
 extern RD_BOOL g_numlock_sync;
 extern int g_server_depth;
 int g_win32_bitmap_bpp = 4;
 int g_win32_bitmap_depth = 32;
 static HWND win32_window;
+static HWND win32_connection_bar;
+static WNDPROC win32_connection_bar_default_proc;
+static RDESKTOP_WINDOW_MODE win32_preferred_window_mode = RDESKTOP_WINDOW_CLIENT_SIZE;
+#define WIN32_BAR_MINIMIZE 9101
+#define WIN32_BAR_RESTORE 9102
+#define WIN32_BAR_CLOSE 9103
 static uint32 win32_width;
 static uint32 win32_height;
 
@@ -29,6 +39,9 @@ static void win32_remote_to_client(POINT *point);
 static RD_BOOL win32_point_in_view(const POINT *point);
 static void win32_send_key(UINT message, WPARAM key, LPARAM key_data, RD_BOOL pressed);
 static void win32_release_remote_modifiers(void);
+static void win32_enter_fullscreen(void);
+static void win32_restore_from_fullscreen(void);
+static void win32_create_connection_bar(int client_width);
 
 static RD_BOOL win32_input_debug_enabled = False;
 static RD_BOOL win32_input_debug_initialized = False;
@@ -548,6 +561,20 @@ static LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wparam
                                        &clipboard_result))
         return clipboard_result;
     switch (message) {
+    case WM_COMMAND:
+        if (LOWORD(wparam) == WIN32_BAR_MINIMIZE) {
+            ShowWindow(hwnd, SW_MINIMIZE);
+            return 0;
+        }
+        if (LOWORD(wparam) == WIN32_BAR_RESTORE) {
+            win32_restore_from_fullscreen();
+            return 0;
+        }
+        if (LOWORD(wparam) == WIN32_BAR_CLOSE) {
+            PostMessage(hwnd, WM_CLOSE, 0, 0);
+            return 0;
+        }
+        return DefWindowProcA(hwnd, message, wparam, lparam);
     case WM_ENTERSIZEMOVE:
         win32_in_sizemove = True;
         return 0;
@@ -557,6 +584,13 @@ static LRESULT CALLBACK win32_window_proc(HWND hwnd, UINT message, WPARAM wparam
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
     case WM_SIZE:
+        if (wparam == SIZE_MAXIMIZED && !g_fullscreen &&
+            win32_preferred_window_mode == RDESKTOP_WINDOW_FULLSCREEN) {
+            win32_enter_fullscreen();
+            return 0;
+        }
+        if (wparam == SIZE_MAXIMIZED && !g_fullscreen)
+            g_window_mode = RDESKTOP_WINDOW_FILL_AVAILABLE;
         win32_update_view_size();
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
@@ -761,6 +795,109 @@ void ui_get_workarea_size(uint32 *width, uint32 *height)
     *height = (uint32)(workarea.bottom - workarea.top);
 }
 
+static LRESULT CALLBACK
+win32_connection_bar_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    if (message == WM_COMMAND) {
+        SendMessage(GetParent(hwnd), message, wparam, lparam);
+        return 0;
+    }
+    return CallWindowProcW(win32_connection_bar_default_proc, hwnd, message, wparam, lparam);
+}
+
+static void
+win32_create_connection_bar(int client_width)
+{
+    HFONT font;
+    HWND item;
+    WCHAR title[256];
+    if (!g_show_connection_bar || !win32_window || win32_connection_bar)
+        return;
+    font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+    MultiByteToWideChar(CP_UTF8, 0, g_title[0] ? g_title : "rdesktop", -1, title, 256);
+    win32_connection_bar = CreateWindowExW(WS_EX_TOOLWINDOW, L"STATIC", L"",
+        WS_CHILD | WS_VISIBLE | WS_BORDER, (client_width - 560) / 2, 0, 560, 34,
+        win32_window, NULL, GetModuleHandleW(NULL), NULL);
+    if (!win32_connection_bar)
+        return;
+    win32_connection_bar_default_proc = (WNDPROC)SetWindowLongPtrW(
+        win32_connection_bar, GWLP_WNDPROC, (LONG_PTR)win32_connection_bar_proc);
+    item = CreateWindowExW(0, L"STATIC", title, WS_CHILD | WS_VISIBLE | SS_CENTER,
+        8, 8, 290, 20, win32_connection_bar, NULL, GetModuleHandleW(NULL), NULL);
+    SendMessage(item, WM_SETFONT, (WPARAM)font, TRUE);
+    item = CreateWindowExW(0, L"BUTTON", L"_", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        310, 4, 50, 25, win32_connection_bar, (HMENU)WIN32_BAR_MINIMIZE,
+        GetModuleHandleW(NULL), NULL);
+    SendMessage(item, WM_SETFONT, (WPARAM)font, TRUE);
+    item = CreateWindowExW(0, L"BUTTON", win32_i18n_get_w("bar.restore"),
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 365, 4, 85, 25, win32_connection_bar,
+        (HMENU)WIN32_BAR_RESTORE, GetModuleHandleW(NULL), NULL);
+    SendMessage(item, WM_SETFONT, (WPARAM)font, TRUE);
+    item = CreateWindowExW(0, L"BUTTON", win32_i18n_get_w("bar.disconnect"),
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 455, 4, 96, 25, win32_connection_bar,
+        (HMENU)WIN32_BAR_CLOSE, GetModuleHandleW(NULL), NULL);
+    SendMessage(item, WM_SETFONT, (WPARAM)font, TRUE);
+}
+
+static void
+win32_enter_fullscreen(void)
+{
+    MONITORINFO mi;
+    HMONITOR monitor;
+    if (!win32_window || g_fullscreen)
+        return;
+    monitor = MonitorFromWindow(win32_window, MONITOR_DEFAULTTONEAREST);
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoA(monitor, &mi))
+        return;
+    g_fullscreen = True;
+    g_window_mode = RDESKTOP_WINDOW_FULLSCREEN;
+    SetWindowLongA(win32_window, GWL_STYLE, WS_POPUP);
+    SetWindowPos(win32_window, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
+        mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top,
+        SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    win32_create_connection_bar(mi.rcMonitor.right - mi.rcMonitor.left);
+    win32_update_view_size();
+    InvalidateRect(win32_window, NULL, FALSE);
+    SetFocus(win32_window);
+}
+
+static void
+win32_restore_from_fullscreen(void)
+{
+    MONITORINFO mi;
+    HMONITOR monitor;
+    RECT outer = { 0, 0, (LONG)win32_width, (LONG)win32_height };
+    int width, height, x, y;
+    if (!win32_window || !g_fullscreen)
+        return;
+    monitor = MonitorFromWindow(win32_window, MONITOR_DEFAULTTONEAREST);
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoA(monitor, &mi))
+        return;
+    g_fullscreen = False;
+    g_window_mode = RDESKTOP_WINDOW_CLIENT_SIZE;
+    if (win32_connection_bar) {
+        DestroyWindow(win32_connection_bar);
+        win32_connection_bar = NULL;
+    }
+    SetWindowLongA(win32_window, GWL_STYLE, WS_OVERLAPPEDWINDOW);
+    AdjustWindowRectEx(&outer, WS_OVERLAPPEDWINDOW, FALSE, 0);
+    width = outer.right - outer.left;
+    height = outer.bottom - outer.top;
+    if (width > mi.rcWork.right - mi.rcWork.left)
+        width = mi.rcWork.right - mi.rcWork.left;
+    if (height > mi.rcWork.bottom - mi.rcWork.top)
+        height = mi.rcWork.bottom - mi.rcWork.top;
+    x = mi.rcWork.left + ((mi.rcWork.right - mi.rcWork.left) - width) / 2;
+    y = mi.rcWork.top + ((mi.rcWork.bottom - mi.rcWork.top) - height) / 2;
+    SetWindowPos(win32_window, HWND_NOTOPMOST, x, y, width, height,
+        SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    win32_update_view_size();
+    InvalidateRect(win32_window, NULL, FALSE);
+    SetFocus(win32_window);
+}
+
 void ui_deinit(void)
 {
     win32_release_remote_modifiers();
@@ -791,6 +928,7 @@ RD_BOOL ui_create_window(uint32 width, uint32 height)
     int target_client_h;
     int wnd_x = CW_USEDEFAULT;
     int wnd_y = CW_USEDEFAULT;
+    win32_preferred_window_mode = g_window_mode;
     SystemParametersInfoA(SPI_GETWORKAREA, 0, &workarea, 0);
     work_w = workarea.right - workarea.left;
     work_h = workarea.bottom - workarea.top;
@@ -820,6 +958,9 @@ RD_BOOL ui_create_window(uint32 width, uint32 height)
                                    NULL, NULL, GetModuleHandleA(NULL), NULL);
     if (!win32_window)
         return False;
+    win32_connection_bar = NULL;
+    if (g_fullscreen)
+        win32_create_connection_bar((int)width);
     win32_clipboard_attach(win32_window);
     win32_dc = CreateCompatibleDC(NULL);
     if (!win32_dc)
@@ -843,7 +984,8 @@ RD_BOOL ui_create_window(uint32 width, uint32 height)
         if (win32_frame)
             win32_old_frame = (HBITMAP)SelectObject(win32_dc, win32_frame);
     }
-    ShowWindow(win32_window, SW_SHOW);
+    ShowWindow(win32_window, g_window_mode == RDESKTOP_WINDOW_FILL_AVAILABLE ?
+               SW_MAXIMIZE : SW_SHOW);
     UpdateWindow(win32_window);
     win32_update_view_size();
     if (g_fullscreen)

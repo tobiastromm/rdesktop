@@ -17,6 +17,8 @@ int g_server_depth = -1;
 char g_keymapname[PATH_MAX] = "";
 char g_password[64] = "";
 RD_BOOL g_fullscreen = False;
+RDESKTOP_WINDOW_MODE g_window_mode = RDESKTOP_WINDOW_CLIENT_SIZE;
+RD_BOOL g_show_connection_bar = True;
 RD_BOOL g_rdpsnd = False;
 
 void
@@ -37,6 +39,24 @@ void
 xfree(void *memory)
 {
 	free(memory);
+}
+
+static int
+session_fields_equal(const RDESKTOP_CONFIG *left, const RDESKTOP_CONFIG *right)
+{
+	return strcmp(left->server, right->server) == 0 &&
+		left->port == right->port &&
+		strcmp(left->username, right->username) == 0 &&
+		strcmp(left->domain, right->domain) == 0 &&
+		left->rdp_version == right->rdp_version &&
+		left->colour_depth == right->colour_depth &&
+		left->width == right->width && left->height == right->height &&
+		left->geometry_type == right->geometry_type &&
+		strcmp(left->keymap, right->keymap) == 0 &&
+		left->fullscreen == right->fullscreen &&
+		left->window_mode == right->window_mode &&
+		left->audio_mode == right->audio_mode &&
+		left->clipboard_enabled == right->clipboard_enabled;
 }
 
 int
@@ -228,6 +248,43 @@ main(void)
 	    strcmp(value.server, "2001:db8::1") != 0 || value.port != TCP_PORT_RDP)
 		return 10;
 #endif
+
+	{
+		RDESKTOP_CONFIG cli_config;
+		RDESKTOP_CONFIG gui_config;
+
+		rdesktop_config_init_defaults(&cli_config);
+		STRNCPY(cli_config.server, "192.0.2.25:3395", sizeof(cli_config.server));
+		if (!rdesktop_config_parse_server_endpoint(&cli_config))
+			return 44;
+		STRNCPY(cli_config.username, "alice", sizeof(cli_config.username));
+		cli_config.username_set = True;
+		STRNCPY(cli_config.domain, "EXAMPLE", sizeof(cli_config.domain));
+		cli_config.rdp_version = RDP_V4;
+		cli_config.colour_depth = 8;
+		if (rdesktop_config_parse_geometry(&cli_config, "1024x768") != 0)
+			return 45;
+		STRNCPY(cli_config.keymap, "pt-br", sizeof(cli_config.keymap));
+		cli_config.audio_mode = RDESKTOP_AUDIO_DISABLED;
+		cli_config.clipboard_enabled = True;
+
+		rdesktop_config_init_defaults(&gui_config);
+		STRNCPY(gui_config.server, "192.0.2.25", sizeof(gui_config.server));
+		gui_config.port = 3395;
+		STRNCPY(gui_config.username, "alice", sizeof(gui_config.username));
+		gui_config.username_set = True;
+		STRNCPY(gui_config.domain, "EXAMPLE", sizeof(gui_config.domain));
+		gui_config.rdp_version = RDP_V4;
+		gui_config.colour_depth = 8;
+		if (rdesktop_config_parse_geometry(&gui_config, "1024x768") != 0)
+			return 46;
+		STRNCPY(gui_config.keymap, "pt-br", sizeof(gui_config.keymap));
+		gui_config.audio_mode = RDESKTOP_AUDIO_DISABLED;
+		gui_config.clipboard_enabled = True;
+
+		if (!session_fields_equal(&cli_config, &gui_config))
+			return 47;
+	}
 
 	return 0;
 }

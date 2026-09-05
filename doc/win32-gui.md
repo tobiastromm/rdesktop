@@ -14,25 +14,11 @@ blocking Win32 `GetMessage`/`TranslateMessage`/`DispatchMessage` loop. Socket,
 MCS, security, RDPSND, CLIPRDR session, framebuffer and RDP processing begin
 only after the validated configuration is handed to the shared runner.
 
-The original faulty split had no numeric baseline instrumentation; its observed
-baseline was a visible console and multi-second grey/unresponsive behavior.
-After correcting the subsystem and entrypoint, the bounded measurements are:
-
-| Measurement | Result |
-|---|---:|
-| Internal entry to interactive first paint | 47 ms |
-| Config defaults | 0 ms timer resolution |
-| Window creation | 0 ms timer resolution |
-| Show to first paint | 32 ms |
-| 20-process startup average | 117.2 ms |
-| 20-process startup p95 | 217.7 ms |
-| 20-process startup maximum | 248.3 ms |
-| Five-second movement test | 162 moves, 32.5 moves/s |
-| Movement-test CPU time | 140.6 ms over 5.0 s |
-| Idle CPU time | 0 ms over 5.0 s |
-
-The optional startup/movement counters are enabled only with
-`RDESKTOP_WIN32_GUI_PERF=1`; normal GUI idle performs no diagnostic polling.
+The GUI performs no diagnostic polling while idle. During title-bar movement,
+one client snapshot represents the form while its child HWNDs are temporarily
+parked under an invisible window. Releasing the mouse restores the same controls
+and their state, destroys the temporary GDI/window resources, and redraws once.
+This avoids composing the complete control tree for every movement step.
 
 `rdesktop-gui.exe` is the native Windows configuration frontend.
 `rdesktop.exe` remains the traditional command-line frontend. The GUI does not
@@ -96,11 +82,10 @@ advanced settings. Selecting an MRU entry applies its profile to the controls
 and explicitly empties the password. Reusing a server moves its profile to the
 top.
 
-Language switching has explicit user-close, connect, and language-reload
-outcomes. Reload destroys and reconstructs the controls in an iterative loop
-inside the same process, reapplies the current in-memory configuration, and
-does not clear the runtime-only password merely because the locale changed.
-Passwords are still cleared on user close and after a session.
+Language switching relabels the live controls without closing or reconstructing
+the window. It preserves the selected tab, entered values, runtime-only
+password, and expanded state. Passwords are still cleared on user close and
+after a session.
 
 Validated gates:
 
@@ -108,4 +93,3 @@ Validated gates:
 - CLI XP: RDP5, 16 bpp, 1024x768, pt-BR, WinMM — PASS.
 - GUI NT4 with the equivalent settings — PASS.
 - GUI XP with clipboard and WinMM — PASS.
-

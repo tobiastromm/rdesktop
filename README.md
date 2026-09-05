@@ -33,6 +33,23 @@ The smart-card support module uses PCSC-lite. You should use PCSC-lite 1.2.9 or
 later. To enable smart-card support in the rdesktop add `--enable-smartcard` to
 the configure line.
 
+### Native Windows build
+
+The native Windows target uses the MSYS2 MinGW-w64 x64 toolchain:
+
+```powershell
+mingw32-make -f Makefile.win32 clean
+mingw32-make -f Makefile.win32
+mingw32-make -f Makefile.win32 tests
+mingw32-make -f Makefile.win32 package
+```
+
+It produces `rdesktop.exe`, the traditional command-line frontend, and
+`rdesktop-gui.exe`, the native configuration frontend. Both use the same
+`RDESKTOP_CONFIG` validation and RDP session core; the GUI does not invoke the
+CLI executable. See `doc/win32-build.md` and `doc/win32-gui.md` for supported
+features and packaging details.
+
 
 ## Build dependencies
 
@@ -125,7 +142,8 @@ options override matching settings read from the file.
 Additional documentation is available in the `doc/` directory. In particular,
 `doc/keymapping.txt` describes the keyboard mapping file format and
 `doc/keymap-creation.txt` provides a practical checklist for creating or
-updating keymaps.
+updating keymaps. Native Windows architecture and feature status are documented
+in `doc/win32-platform.md` and `doc/win32-gui-option-map.md`.
 
 
 ## Troubleshooting

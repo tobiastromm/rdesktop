@@ -12,8 +12,6 @@ BIN_DIR = $(TARGET_DIR)/bin
 PACKAGE_DIR = $(TARGET_DIR)/package
 TEST_OBJ_DIR = $(OBJ_DIR)/tests
 PACKAGE_ZIP = $(PACKAGE_DIR)/rdesktop-$(TARGET_NAME).zip
-MINGW_BIN = C:/msys64/mingw64/bin
-MINGW_BIN_CMD = C:\msys64\mingw64\bin
 RUNTIME_DLLS = libbrotlicommon.dll libbrotlidec.dll libbrotlienc.dll libffi-8.dll \
 	libgmp-10.dll libgnutls-30.dll libhogweed-7.dll libiconv-2.dll \
 	libidn2-0.dll libintl-8.dll libnettle-9.dll libp11-kit-0.dll \
@@ -75,8 +73,8 @@ $(BIN_DIR)/rdesktop.exe: $(CLI_OBJECT) $(SHARED_OBJECTS) | directories
 $(BIN_DIR)/rdesktop-gui.exe: $(GUI_OBJECTS) $(SHARED_OBJECTS) | directories
 	$(CC) $(LDFLAGS) -mwindows -o $@ $^ $(WIN32_SYSTEM_LIBS)
 
-$(BIN_DIR)/%.dll: $(MINGW_BIN)/%.dll | directories
-	copy /Y "$(MINGW_BIN_CMD)\$*.dll" "$(BIN_DIR)\$*.dll" >NUL
+$(BIN_DIR)/%.dll: | directories
+	$(POWERSHELL) -NoProfile -Command "$$tool = (Get-Command '$(CC)').Source; $$source = Join-Path (Split-Path $$tool) '$*.dll'; Copy-Item -LiteralPath $$source -Destination '$(BIN_DIR)/$*.dll' -Force"
 
 preflight:
 	@where $(CC) >NUL 2>NUL || (echo ERROR: $(CC) not found on PATH. Add the MinGW-w64 x64 toolchain to PATH or override CC. & exit /B 1)

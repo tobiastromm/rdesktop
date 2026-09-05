@@ -61,19 +61,11 @@ typedef struct win32_gui_state
 	RDESKTOP_CONFIG *config;
 	RD_BOOL done;
 	int result;
-	DWORD create_begin;
-	DWORD create_end;
-	DWORD wm_create_begin;
-	DWORD wm_create_end;
-	DWORD show_tick;
-	DWORD first_paint;
-	RD_BOOL perf_reported;
-	DWORD last_dispatch;
-	DWORD max_dispatch_gap;
-	DWORD first_move;
-	DWORD last_move;
-	uint32 move_count;
-	uint32 paint_count;
+	RD_BOOL moving;
+	HBITMAP move_snapshot;
+	HWND move_parking_window;
+	int move_snapshot_width;
+	int move_snapshot_height;
 	RD_BOOL expanded;
 	RD_BOOL applying_language;
 	char locale[16];
@@ -87,45 +79,6 @@ enum { GUI_EXIT_USER_CLOSE, GUI_EXIT_CONNECT, GUI_EXIT_LANGUAGE_RELOAD };
 static WIN32_DIAGNOSTIC_LOG gui_diagnostic_log;
 static void gui_diagnostic_sink(void *context,const char *message){win32_diagnostic_log_append((WIN32_DIAGNOSTIC_LOG*)context,message);}
 void win32_gui_log_event(const char *message){win32_diagnostics_set_sink(gui_diagnostic_sink,&gui_diagnostic_log);if(win32_diagnostics_input_enabled())win32_diagnostics_emit(message);}
-
-static void
-gui_perf_report_runtime(WIN32_GUI_STATE *state)
-{
-	const char *enabled = getenv("RDESKTOP_WIN32_GUI_PERF");
-	DWORD move_ms;
-	if (enabled == NULL || enabled[0] == '\0')
-		return;
-	move_ms = state->last_move >= state->first_move ? state->last_move - state->first_move : 0;
-	fprintf(stderr,
-		"GUI IDLE PERF move_count=%u move_ms=%lu move_per_sec=%.1f paint_count=%u max_dispatch_gap_ms=%lu\n",
-		state->move_count, (unsigned long) move_ms,
-		move_ms ? state->move_count * 1000.0 / move_ms : 0.0,
-		state->paint_count, (unsigned long) state->max_dispatch_gap);
-	fflush(stderr);
-}
-
-static DWORD gui_perf_entry;
-static DWORD gui_perf_config_ready;
-
-void win32_gui_perf_mark_entry(void) { gui_perf_entry = GetTickCount(); }
-void win32_gui_perf_mark_config_ready(void) { gui_perf_config_ready = GetTickCount(); }
-
-static void
-gui_perf_report(WIN32_GUI_STATE *state)
-{
-	const char *enabled = getenv("RDESKTOP_WIN32_GUI_PERF");
-	if (state->perf_reported || state->first_paint == 0 || enabled == NULL || enabled[0] == '\0')
-		return;
-	state->perf_reported = True;
-	fprintf(stderr,
-		"GUI STARTUP PERF config_init_ms=%lu window_create_ms=%lu wm_create_ms=%lu show_to_first_paint_ms=%lu total_to_interactive_ms=%lu\n",
-		(unsigned long) (gui_perf_config_ready - gui_perf_entry),
-		(unsigned long) (state->create_end - state->create_begin),
-		(unsigned long) (state->wm_create_end - state->wm_create_begin),
-		(unsigned long) (state->first_paint - state->show_tick),
-		(unsigned long) (state->first_paint - gui_perf_entry));
-	fflush(stderr);
-}
 
 static void gui_utf8_to_wide(const char *text,WCHAR *wide,int count){if(!MultiByteToWideChar(CP_UTF8,0,text?text:"",-1,wide,count))wide[0]=0;}
 static void gui_wide_to_utf8(const WCHAR *wide,char *text,size_t size){if(!WideCharToMultiByte(CP_UTF8,0,wide?wide:L"",-1,text,(int)size,NULL,NULL))text[0]=0;text[size-1]=0;}
@@ -316,6 +269,76 @@ gui_read_config(HWND window, RDESKTOP_CONFIG *config, char *error, size_t error_
 	return rdesktop_config_validate_message(config, error, error_size) == 0;
 }
 
+static void
+gui_begin_move_snapshot(HWND window, WIN32_GUI_STATE *state)
+{
+	RECT client;
+	HDC window_dc;
+	HDC snapshot_dc;
+	HBITMAP previous;
+	HWND child;
+	HWND next;
+
+	if (!GetClientRect(window, &client))
+		return;
+	state->move_snapshot_width = client.right;
+	state->move_snapshot_height = client.bottom;
+	window_dc = GetDC(window);
+	snapshot_dc = CreateCompatibleDC(window_dc);
+	state->move_snapshot = CreateCompatibleBitmap(window_dc,
+		state->move_snapshot_width, state->move_snapshot_height);
+	if (snapshot_dc == NULL || state->move_snapshot == NULL)
+	{
+		if (snapshot_dc != NULL)
+			DeleteDC(snapshot_dc);
+		if (window_dc != NULL)
+			ReleaseDC(window, window_dc);
+		state->move_snapshot = NULL;
+		return;
+	}
+	previous = (HBITMAP) SelectObject(snapshot_dc, state->move_snapshot);
+	PrintWindow(window, snapshot_dc, PW_CLIENTONLY);
+	SelectObject(snapshot_dc, previous);
+	DeleteDC(snapshot_dc);
+	ReleaseDC(window, window_dc);
+	state->move_parking_window = CreateWindowExW(0, L"STATIC", L"",
+		WS_POPUP, 0, 0, 0, 0, NULL, NULL, GetModuleHandleW(NULL), NULL);
+	if (state->move_parking_window == NULL)
+		return;
+	for (child = GetWindow(window, GW_CHILD); child != NULL; child = next)
+	{
+		next = GetWindow(child, GW_HWNDNEXT);
+		SetParent(child, state->move_parking_window);
+	}
+	InvalidateRect(window, NULL, FALSE);
+	UpdateWindow(window);
+}
+
+static void
+gui_restore_after_move(HWND window, WIN32_GUI_STATE *state)
+{
+	HWND child;
+	HWND next;
+
+	for (child = state->move_parking_window != NULL ?
+	     GetWindow(state->move_parking_window, GW_CHILD) : NULL;
+	     child != NULL; child = next)
+	{
+		next = GetWindow(child, GW_HWNDNEXT);
+		SetParent(child, window);
+	}
+	if (state->move_parking_window != NULL)
+		DestroyWindow(state->move_parking_window);
+	state->move_parking_window = NULL;
+	if (state->move_snapshot != NULL)
+	{
+		DeleteObject(state->move_snapshot);
+		state->move_snapshot = NULL;
+	}
+	RedrawWindow(window, NULL, NULL,
+		RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+}
+
 static LRESULT CALLBACK
 gui_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
@@ -327,35 +350,44 @@ gui_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 		SetWindowLongPtr(window, GWLP_USERDATA, (LONG_PTR) create->lpCreateParams);
 		return TRUE;
 	}
-	if (message == WM_PAINT && state->first_paint == 0)
-		state->first_paint = GetTickCount();
 	if (state == NULL)
 		return DefWindowProcW(window, message, wparam, lparam);
 	if (message == DM_GETDEFID)
 		return MAKELRESULT(ID_CONNECT, DC_HASDEFID);
 	if (message == DM_SETDEFID)
 		return TRUE;
+	if (message == WM_ENTERSIZEMOVE)
 	{
-		DWORD now = GetTickCount();
-		if (state->last_dispatch != 0 && now - state->last_dispatch > state->max_dispatch_gap)
-			state->max_dispatch_gap = now - state->last_dispatch;
-		state->last_dispatch = now;
-		if (message == WM_MOVE)
-		{
-			if (state->move_count == 0)
-				state->first_move = now;
-			state->last_move = now;
-			state->move_count++;
-		}
-		if (message == WM_PAINT)
-			state->paint_count++;
-	}
-	if (message == WM_CREATE)
-	{
-		state->wm_create_begin = GetTickCount();
-		state->wm_create_end = GetTickCount();
+		state->moving = True;
+		gui_begin_move_snapshot(window, state);
 		return 0;
 	}
+	if (message == WM_ERASEBKGND && state->moving)
+		return TRUE;
+	if (message == WM_PAINT && state->moving)
+	{
+		PAINTSTRUCT paint;
+		HDC destination = BeginPaint(window, &paint);
+		if (state->move_snapshot != NULL)
+		{
+			HDC source = CreateCompatibleDC(destination);
+			HBITMAP previous = (HBITMAP) SelectObject(source, state->move_snapshot);
+			BitBlt(destination, 0, 0, state->move_snapshot_width,
+				state->move_snapshot_height, source, 0, 0, SRCCOPY);
+			SelectObject(source, previous);
+			DeleteDC(source);
+		}
+		EndPaint(window, &paint);
+		return 0;
+	}
+	if (message == WM_EXITSIZEMOVE)
+	{
+		state->moving = False;
+		gui_restore_after_move(window, state);
+		return 0;
+	}
+	if (message == WM_CREATE)
+		return 0;
 	if (message == WM_COMMAND && LOWORD(wparam) == ID_CONNECT)
 	{
 		char error[256];
@@ -383,7 +415,6 @@ gui_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 	}
 	if ((message == WM_COMMAND && LOWORD(wparam) == ID_CANCEL) || message == WM_CLOSE)
 	{
-		gui_perf_report_runtime(state);
 		state->result = GUI_EXIT_USER_CLOSE;
 		state->done = True;
 		DestroyWindow(window);
@@ -557,7 +588,6 @@ win32_config_dialog_once(RDESKTOP_CONFIG *config, char *error, size_t error_size
 	STRNCPY(state.locale,win32_i18n_locale(),sizeof(state.locale));
 	controls.dwSize=sizeof(controls);controls.dwICC=ICC_TAB_CLASSES;InitCommonControlsEx(&controls);
 	state.config = config;
-	state.create_begin = GetTickCount();
 	window = CreateWindowExW(WS_EX_CONTROLPARENT, GUI_CLASS, TRW("app.title"),
 		WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
 		CW_USEDEFAULT, CW_USEDEFAULT, 680, state.expanded?650:220, NULL, NULL,
@@ -568,7 +598,6 @@ win32_config_dialog_once(RDESKTOP_CONFIG *config, char *error, size_t error_size
 		return GUI_EXIT_USER_CLOSE;
 	}
 	SetWindowTextW(window, TRW("app.title"));
-	state.create_end = GetTickCount();
 
 #define LAB(id,key,x,y) gui_control(window,L"STATIC",TR(key),SS_LEFT,x,y,145,20,id)
 	gui_control(window,L"STATIC",TR("app.subtitle"),SS_LEFT,20,16,400,24,300);
@@ -615,7 +644,6 @@ win32_config_dialog_once(RDESKTOP_CONFIG *config, char *error, size_t error_size
 		mi.cbSize=sizeof(mi); if(GetMonitorInfoA(monitor,&mi)&&GetWindowRect(window,&wr))
 			SetWindowPos(window,NULL,mi.rcWork.left+((mi.rcWork.right-mi.rcWork.left)-(wr.right-wr.left))/2,mi.rcWork.top+((mi.rcWork.bottom-mi.rcWork.top)-(wr.bottom-wr.top))/2,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
 	}
-	state.show_tick = GetTickCount();
 	ShowWindow(window, SW_SHOW);
 	UpdateWindow(window);
 	SetFocus(GetDlgItem(window, ID_SERVER));
@@ -624,7 +652,6 @@ win32_config_dialog_once(RDESKTOP_CONFIG *config, char *error, size_t error_size
 	gui_combo_caret_end(GetDlgItem(window, ID_KEYBOARD));
 	while (!state.done && GetMessage(&message, NULL, 0, 0) > 0)
 	{
-		gui_perf_report(&state);
 		if (!IsDialogMessage(window, &message))
 		{
 			TranslateMessage(&message);

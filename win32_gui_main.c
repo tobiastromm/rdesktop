@@ -16,11 +16,9 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 	UNUSED(previous_instance);
 	UNUSED(command_line);
 	UNUSED(show_command);
-	win32_gui_perf_mark_entry();
 	rdesktop_config_init(&config);
 	if (GetUserNameA(username, &username_length))
 		STRNCPY(config.username, username, sizeof(config.username));
-	win32_gui_perf_mark_config_ready();
 	while (win32_config_dialog(&config, error, sizeof(error)))
 	{
 		int result;

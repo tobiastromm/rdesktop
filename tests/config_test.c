@@ -127,6 +127,9 @@ main(void)
 	if (rdesktop_config_parse_geometry(&value, "workarea") != 0 ||
 	    value.geometry_type != Workarea)
 		return 19;
+	if (rdesktop_config_parse_geometry(&value, "800x600") != 0 ||
+	    value.geometry_type != Fixed || value.width != 800 || value.height != 600)
+		return 49;
 	rdesktop_config_init_defaults(&value);
 	if (rdesktop_config_parse_geometry(&value, "800x") == 0)
 		return 20;
@@ -196,6 +199,13 @@ main(void)
 	rdesktop_config_apply_to_legacy(&value, domain, sizeof(domain));
 	if (g_fullscreen || g_window_size_type != Fixed)
 		return 40;
+	value.window_mode = RDESKTOP_WINDOW_FILL_AVAILABLE;
+	rdesktop_config_apply_to_legacy(&value, domain, sizeof(domain));
+	if (g_window_mode != RDESKTOP_WINDOW_FILL_AVAILABLE ||
+	    g_window_size_type != Fixed ||
+	    g_requested_session_width != 800 ||
+	    g_requested_session_height != 600)
+		return 48;
 
 	rdesktop_config_init_defaults(&value);
 	if (value.audio_mode != RDESKTOP_AUDIO_DISABLED ||

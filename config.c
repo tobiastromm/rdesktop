@@ -112,6 +112,14 @@ rdesktop_config_parse_geometry(RDESKTOP_CONFIG *config, const char *geometry)
 		config->geometry_set = True;
 		return 0;
 	}
+	/* A GUI/profile configuration object is reused between connections.  A
+	 * numeric geometry must replace, rather than inherit, a previous
+	 * workarea or percentage geometry. */
+	config->geometry_type = Fixed;
+	config->x = 0;
+	config->y = 0;
+	config->position = 0;
+	config->dpi = 0;
 	cursor = geometry;
 	value = strtol(cursor, &end, 10);
 	if (cursor == end || value <= 0)
@@ -326,8 +334,6 @@ rdesktop_config_apply_to_legacy(const RDESKTOP_CONFIG *config, char *domain,
 	g_fullscreen = config->fullscreen;
 	g_window_mode = config->window_mode;
 	g_show_connection_bar = config->show_connection_bar;
-	if (config->window_mode == RDESKTOP_WINDOW_FILL_AVAILABLE)
-		g_window_size_type = Workarea;
 	if (config->fullscreen)
 		g_window_size_type = Fullscreen;
 }
